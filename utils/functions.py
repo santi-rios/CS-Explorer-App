@@ -37,10 +37,19 @@ def load_country_data(data_path: str = "./data/data.parquet") -> Dict:
         # Handle missing regions
         country_list['region'] = country_list['region'].fillna('Other')
         country_list = country_list.sort_values('country').reset_index(drop=True)
-        
-        # Get chemical categories
-        chemical_categories = ['All'] + sorted(df['chemical'].dropna().unique().tolist())
-        
+        # Get chemical categories - Modified to remove empty values
+        chemical_categories = (
+            ['All'] + 
+            sorted(df['chemical']
+                  .dropna()
+                  .unique()
+                  .tolist())
+        )
+        # Remove any empty strings
+        chemical_categories = [c for c in chemical_categories if c and str(c).strip()]
+        # Remove duplicates while preserving order
+        chemical_categories = list(dict.fromkeys(chemical_categories))
+         
         # Get regions
         regions = sorted(country_list['region'].unique().tolist())
         
@@ -59,7 +68,7 @@ def load_country_data(data_path: str = "./data/data.parquet") -> Dict:
         return {
             'data': df,
             'country_list': country_list,
-            'chemical_categories': chemical_categories,
+            'chemical_categories': chemical_categories,  # Updated list
             'regions': regions,
             'min_year': min_year,
             'max_year': max_year,
@@ -103,9 +112,12 @@ def get_display_data(
         (df['year'] <= year_range[1])
     ].copy()
     
-    # Apply chemical filter
-    if chemical_category != "All":
+    # Apply chemical filter - Modified to handle "All" correctly
+    if chemical_category == "All":
+        filtered_df = filtered_df[filtered_df['chemical'] == "All"]
+    else:
         filtered_df = filtered_df[filtered_df['chemical'] == chemical_category]
+    
         
     # Logic based on display mode
     if display_mode in ["individual", "compare_individuals"]:
@@ -600,3 +612,5 @@ def create_top_collabs_plot(top_collab_data: pd.DataFrame, title: str = "Collabo
     )
     
     return fig
+
+

@@ -277,18 +277,24 @@ def create_app():
         @render_widget
         def country_cs_plot():
             article_data = data_objects['article_data']
-            df_filtered = article_data[article_data['source'] == "Country participation in the CS"]
-            return create_article_plot(df_filtered, "Country participation in the CS")
+            if article_data.empty:
+                return create_empty_plot("No article data available")
             
+            df_filtered = article_data[article_data['source'] == "Country participation in the CS"]
+            if df_filtered.empty:
+                return create_empty_plot("No country participation data available")
+            
+            return create_article_plot(df_filtered, "Country participation in the CS")
+
         @output
         @render_widget
         def article_top_collabs_plot():
             is_collab = input.top_data_type_filter() == "collabs"
             chem_filter = input.top_collabs_chem_filter()
             
-            filtered_data = df[
-                (df['is_collab'] == is_collab) & 
-                (df['chemical'] == chem_filter)
+            filtered_data = df_main[
+                (df_main['is_collab'] == is_collab) & 
+                (df_main['chemical'] == chem_filter)
             ]
             
             if filtered_data.empty:
@@ -307,9 +313,80 @@ def create_app():
                 f"Top 10 {'Collaborations' if is_collab else 'Countries'}: {chem_filter}"
             )
 
-        # Additional article plots would follow similar pattern...
+        @output
+        @render_widget
+        def article_gdp_plot():
+            article_data = data_objects['article_data']
+            if article_data.empty:
+                # Create dummy data for testing
+                dummy_data = pd.DataFrame({
+                    'source': ['Annual growth rate of the GDP'] * 69,
+                    'year': list(range(2000, 2023)) * 3,
+                    'country': ['United States'] * 23 + ['China'] * 23 + ['Germany'] * 23,
+                    'value': np.random.uniform(-5, 10, 69),
+                })
+                return create_gdp_plot(dummy_data)
+            
+            gdp_data = article_data[article_data['source'] == "Annual growth rate of the GDP"]
+            if gdp_data.empty:
+                return create_empty_plot("No GDP data available")
+                
+            return create_gdp_plot(gdp_data)
+
+        @output
+        @render_widget
+        def article_researchers_plot():
+            article_data = data_objects['article_data']
+            if article_data.empty:
+                # Create dummy data for testing
+                dummy_data = pd.DataFrame({
+                    'source': ['Number of Researchers'] * 69,
+                    'year': list(range(2000, 2023)) * 3,
+                    'country': ['United States'] * 23 + ['China'] * 23 + ['Germany'] * 23,
+                    'value': np.random.uniform(500000, 2000000, 69),
+                })
+                return create_researchers_plot(dummy_data)
+            
+            researchers_data = article_data[article_data['source'] == "Number of Researchers"]
+            if researchers_data.empty:
+                return create_empty_plot("No researchers data available")
+                
+            return create_researchers_plot(researchers_data)
+        
+
+        @reactive.Effect
+        def _validate_chemical_category():
+            current_category = input.chemical_category()
+            if not current_category or str(current_category).strip() == "":
+                # Reset to "All" if invalid selection
+                ui.update_select(
+                    "chemical_category",
+                    selected="All"
+                )
+
+
+        @output
+        @render_widget
+        def article_cs_expansion_plot():
+            article_data = data_objects['article_data']
+            if article_data.empty:
+                # Create dummy data for testing
+                dummy_data = pd.DataFrame({
+                    'source': ['Expansion of the CS'] * 69,
+                    'year': list(range(2000, 2023)) * 3,
+                    'country': ['United States'] * 23 + ['China'] * 23 + ['Germany'] * 23,
+                    'value': np.random.uniform(1, 50, 69),
+                })
+                return create_cs_expansion_plot(dummy_data)
+            
+            cs_data = article_data[article_data['source'] == "Expansion of the CS"]
+            if cs_data.empty:
+                return create_empty_plot("No CS expansion data available")
+                
+            return create_cs_expansion_plot(cs_data)
         
     return App(app_ui, server)
+
 
 # Helper functions
 def create_folium_map(country_list: pd.DataFrame, selected_countries: List[str]) -> folium.Map:
@@ -322,7 +399,7 @@ def create_folium_map(country_list: pd.DataFrame, selected_countries: List[str])
         world = gpd.read_file(world_path)
         
         iso_column = None
-        for possible_col in ['iso_a2']: # Assuming 'iso_a2' is the correct column in your GeoJSON
+        for possible_col in ['iso_a2', 'ISO_A2', 'iso2c', 'ISO2C']:
             if possible_col in world.columns:
                 iso_column = possible_col
                 break
@@ -331,38 +408,67 @@ def create_folium_map(country_list: pd.DataFrame, selected_countries: List[str])
             print("Warning: No ISO column found in GeoJSON. Available columns:", world.columns.tolist())
             raise FileNotFoundError("No suitable ISO column found")
                 
-        for _, country_row in country_list.iterrows(): # Renamed 'country' to 'country_row' to avoid conflict
+        for _, country_row in country_list.iterrows():
             iso = country_row['iso2c']
-            country_name = country_row['country'] # Use 'country_name' for clarity
+            country_name = country_row['country']
             color = country_row['cc'] if iso in selected_countries else 'lightgray'
             
             country_geo = world[world[iso_column] == iso]
             
             if not country_geo.empty:
-                # JavaScript to send ISO code to Shiny when popup button is clicked
-                js_onclick_call = f"Shiny.setInputValue('map_click_iso', '{iso}', {{priority: 'event'}});"
-                
-                # Create a more informative popup with a selection button
+                # Create a popup with working JavaScript
                 popup_html = f"""
-                <b>{country_name} ({iso})</b><br>
-                <button onclick="{js_onclick_call}">
-                    {'Deselect' if iso in selected_countries else 'Select'}
-                </button>
+                <div>
+                    <b>{country_name} ({iso})</b><br>
+                    <button onclick="
+                        if (window.parent && window.parent.Shiny) {{
+                            window.parent.Shiny.setInputValue('map_click_iso', '{iso}', {{priority: 'event'}});
+                        }} else if (window.Shiny) {{
+                            window.Shiny.setInputValue('map_click_iso', '{iso}', {{priority: 'event'}});
+                        }} else {{
+                            console.log('Shiny not found, trying alternative...');
+                            try {{
+                                document.dispatchEvent(new CustomEvent('shiny:inputchanged', {{
+                                    detail: {{name: 'map_click_iso', value: '{iso}'}}
+                                }}));
+                            }} catch(e) {{
+                                console.log('Alternative method failed:', e);
+                            }}
+                        }}
+                    " style="padding: 5px 10px; margin: 5px 0; cursor: pointer;">
+                        {'Deselect' if iso in selected_countries else 'Select'}
+                    </button>
+                </div>
                 """
                 
                 folium.GeoJson(
                     country_geo.iloc[0].geometry,
                     style_function=lambda x, color=color: {
                         'fillColor': color,
-                        'color': 'white', # Border color of the polygon
+                        'color': 'white',
                         'weight': 1,
                         'fillOpacity': 0.7
                     },
-                    tooltip=f"{country_name} ({iso})", # Tooltip on hover
-                    popup=folium.Popup(popup_html) # Popup on click
+                    tooltip=f"{country_name} ({iso})",
+                    popup=folium.Popup(popup_html, max_width=200)
                 ).add_to(m)
             else:
-                # Fallback to marker if country not found in GeoJSON
+                # Fallback to marker
+                popup_html = f"""
+                <div>
+                    <b>{country_name} ({iso})</b><br>
+                    <button onclick="
+                        if (window.parent && window.parent.Shiny) {{
+                            window.parent.Shiny.setInputValue('map_click_iso', '{iso}', {{priority: 'event'}});
+                        }} else if (window.Shiny) {{
+                            window.Shiny.setInputValue('map_click_iso', '{iso}', {{priority: 'event'}});
+                        }}
+                    " style="padding: 5px 10px; margin: 5px 0; cursor: pointer;">
+                        {'Deselect' if iso in selected_countries else 'Select'}
+                    </button>
+                </div>
+                """
+                
                 folium.CircleMarker(
                     location=[country_row['lat'], country_row['lng']],
                     radius=5,
@@ -370,15 +476,33 @@ def create_folium_map(country_list: pd.DataFrame, selected_countries: List[str])
                     fill=True,
                     fill_color=color,
                     fill_opacity=0.7,
-                    popup=f"{country_name} ({iso}) - Data point", # Simpler popup for markers
+                    popup=folium.Popup(popup_html, max_width=200),
                     tooltip=f"{country_name} ({iso})"
                 ).add_to(m)
                 
     except Exception as e:
         print(f"Error loading GeoJSON: {e}")
-        # Fallback to markers if any issue with GeoJSON
+        # Fallback to markers
         for _, country in country_list.iterrows():
             color = country['cc'] if country['iso2c'] in selected_countries else 'lightgray'
+            iso = country['iso2c']
+            country_name = country['country']
+            
+            popup_html = f"""
+            <div>
+                <b>{country_name} ({iso})</b><br>
+                <button onclick="
+                    if (window.parent && window.parent.Shiny) {{
+                        window.parent.Shiny.setInputValue('map_click_iso', '{iso}', {{priority: 'event'}});
+                    }} else if (window.Shiny) {{
+                        window.Shiny.setInputValue('map_click_iso', '{iso}', {{priority: 'event'}});
+                    }}
+                " style="padding: 5px 10px; margin: 5px 0; cursor: pointer;">
+                    {'Deselect' if iso in selected_countries else 'Select'}
+                </button>
+            </div>
+            """
+            
             folium.CircleMarker(
                 location=[country['lat'], country['lng']],
                 radius=5,
@@ -386,8 +510,8 @@ def create_folium_map(country_list: pd.DataFrame, selected_countries: List[str])
                 fill=True,
                 fill_color=color,
                 fill_opacity=0.7,
-                popup=country['country'],
-                tooltip=country['country']
+                popup=folium.Popup(popup_html, max_width=200),
+                tooltip=country_name
             ).add_to(m)
     
     return m
@@ -396,18 +520,39 @@ def create_trends_plot(data: pd.DataFrame, selected_countries: List[str], mode: 
     """Create trends plot using Plotly"""
     fig = go.Figure()
     
+    # Check which column name is used for the percentage values
+    # Possible names: 'percentage', 'value', 'value_raw', 'percentage_x'
+    value_column = None
+    for possible_col in ['percentage', 'value', 'value_raw', 'percentage_x']:
+        if possible_col in data.columns:
+            value_column = possible_col
+            break
+    
+    if value_column is None:
+        # No valid column found, create empty plot with error message
+        fig.add_annotation(
+            text="Error: Missing value column in data",
+            xref="paper", yref="paper",
+            x=0.5, y=0.5, showarrow=False
+        )
+        fig.update_layout(
+            xaxis=dict(visible=False),
+            yaxis=dict(visible=False)
+        )
+        return fig
+    
     if mode == "compare_individuals" or len(selected_countries) == 1:
         # Individual country trends
         for country in data['country'].unique():
             country_data = data[data['country'] == country]
             fig.add_trace(go.Scatter(
                 x=country_data['year'],
-                y=country_data['percentage'],
+                y=country_data[value_column],
                 mode='lines+markers',
                 name=country,
                 hovertemplate=f"<b>{country}</b><br>" +
                              "Year: %{x}<br>" +
-                             "Percentage: %{y:.2f}%<extra></extra>"
+                             f"{value_column}: %{{y:.2f}}%<extra></extra>"
             ))
     else:
         # Collaboration trends
@@ -415,12 +560,12 @@ def create_trends_plot(data: pd.DataFrame, selected_countries: List[str], mode: 
             collab_data = data[data['iso2c'] == collab]
             fig.add_trace(go.Scatter(
                 x=collab_data['year'],
-                y=collab_data['percentage'], 
+                y=collab_data[value_column], 
                 mode='lines+markers',
                 name=collab,
                 hovertemplate=f"<b>{collab}</b><br>" +
                              "Year: %{x}<br>" +
-                             "Percentage: %{y:.2f}%<extra></extra>"
+                             f"{value_column}: %{{y:.2f}}%<extra></extra>"
             ))
     
     fig.update_layout(
@@ -435,13 +580,33 @@ def create_trends_plot(data: pd.DataFrame, selected_countries: List[str], mode: 
 
 def create_contribution_choropleth(data: pd.DataFrame):
     """Create world choropleth map"""
+    # Check which column name is used for the percentage values
+    value_column = None
+    for possible_col in ['percentage', 'value', 'value_raw', 'percentage_x']:
+        if possible_col in data.columns:
+            value_column = possible_col
+            break
+    
+    if value_column is None:
+        fig = go.Figure()
+        fig.add_annotation(
+            text="Error: Missing value column in data",
+            xref="paper", yref="paper",
+            x=0.5, y=0.5, showarrow=False
+        )
+        fig.update_layout(
+            xaxis=dict(visible=False),
+            yaxis=dict(visible=False)
+        )
+        return fig
+    
     # Calculate average contribution by country
-    avg_data = data.groupby(['iso2c', 'country'])['percentage'].mean().reset_index()
+    avg_data = data.groupby(['iso2c', 'country'])[value_column].mean().reset_index()
     
     fig = px.choropleth(
         avg_data,
         locations='iso2c',
-        color='percentage',
+        color=value_column,
         hover_name='country',
         color_continuous_scale='Viridis',
         title='Average Chemical Space Contribution'
@@ -456,11 +621,22 @@ def create_contribution_choropleth(data: pd.DataFrame):
 
 def create_summary_dataframe(data: pd.DataFrame, mode: str) -> pd.DataFrame:
     """Create summary statistics table"""
+    # Check which column name is used for the percentage values
+    value_column = None
+    for possible_col in ['percentage', 'value', 'value_raw', 'percentage_x']:
+        if possible_col in data.columns:
+            value_column = possible_col
+            break
+    
+    if value_column is None:
+        # Return empty DataFrame with message
+        return pd.DataFrame({'Error': ['Missing value column in data']})
+    
     if mode == "find_collaborations":
         summary = (
             data.groupby(['iso2c', 'chemical'])
             .agg({
-                'percentage': ['mean', 'max', 'count']
+                value_column: ['mean', 'max', 'count']
             })
             .round(2)
             .reset_index()
@@ -470,7 +646,7 @@ def create_summary_dataframe(data: pd.DataFrame, mode: str) -> pd.DataFrame:
         summary = (
             data.groupby(['country', 'iso2c', 'chemical'])
             .agg({
-                'percentage': ['mean', 'max', 'count']
+                value_column: ['mean', 'max', 'count']
             })
             .round(2)
             .reset_index()
@@ -544,6 +720,106 @@ def create_empty_plot(message: str):
         yaxis=dict(visible=False),
         template='plotly_white'
     )
+    return fig
+
+
+def create_gdp_plot(data: pd.DataFrame):
+    """Create GDP article plot with annotations for economic events"""
+    fig = go.Figure()
+    
+    for country in data['country'].unique():
+        country_data = data[data['country'] == country]
+        fig.add_trace(go.Scatter(
+            x=country_data['year'],
+            y=country_data['value'],
+            mode='lines+markers',
+            name=country,
+            line=dict(width=2),
+            marker=dict(size=6)
+        ))
+    
+    # Add vertical lines and annotations for economic events
+    fig.add_vline(x=2007.5, line_dash="dash", line_color="grey")
+    fig.add_vline(x=2019.5, line_dash="dash", line_color="grey")
+    
+    # Calculate y-position for annotations based on data
+    if fig.data:
+        max_val = max([max(trace['y']) for trace in fig.data])
+        fig.add_annotation(
+            x=2007.5, 
+            y=max_val * 0.9,
+            text="Financial Crisis", 
+            showarrow=True,
+            arrowhead=1
+        )
+        fig.add_annotation(
+            x=2019.5, 
+            y=max_val * 0.8,
+            text="COVID-19", 
+            showarrow=True,
+            arrowhead=1
+        )
+    
+    fig.update_layout(
+        title="Figure: Annual growth rate of the GDP",
+        xaxis_title="Year",
+        yaxis_title="GDP Growth Rate (%)",
+        template='plotly_white',
+        hovermode='x unified'
+    )
+    
+    return fig
+
+def create_researchers_plot(data: pd.DataFrame):
+    """Create researchers plot with values in millions"""
+    fig = go.Figure()
+    
+    for country in data['country'].unique():
+        country_data = data[data['country'] == country]
+        scaled_values = country_data['value'] / 1e6  # Convert to millions
+        
+        fig.add_trace(go.Scatter(
+            x=country_data['year'],
+            y=scaled_values,
+            mode='lines+markers',
+            name=country,
+            line=dict(width=2),
+            marker=dict(size=6)
+        ))
+    
+    fig.update_layout(
+        title="Figure: Number of Researchers",
+        xaxis_title="Year",
+        yaxis_title="Number of Researchers (Millions)",
+        template='plotly_white',
+        hovermode='x unified'
+    )
+    
+    return fig
+
+def create_cs_expansion_plot(data: pd.DataFrame):
+    """Create chemical space expansion plot"""
+    fig = go.Figure()
+    
+    for country in data['country'].unique():
+        country_data = data[data['country'] == country]
+        fig.add_trace(go.Scatter(
+            x=country_data['year'],
+            y=country_data['value'],
+            mode='lines+markers',
+            name=country,
+            line=dict(width=2),
+            marker=dict(size=6)
+        ))
+    
+    fig.update_layout(
+        title="Figure: Chemical Space Expansion",
+        xaxis_title="Year",
+        yaxis_title="Expansion Rate",
+        template='plotly_white',
+        hovermode='x unified'
+    )
+    
     return fig
 
 # Create and run the app
