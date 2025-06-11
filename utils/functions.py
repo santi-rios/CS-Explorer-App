@@ -90,91 +90,144 @@ def get_display_data(
 ) -> pd.DataFrame:
     """
     Fetch and process data based on user selections
-    
-    Args:
-        df: Main data DataFrame
-        selected_isos: List of selected ISO codes
-        year_range: Tuple of (min_year, max_year)
-        chemical_category: Selected chemical category
-        display_mode: Current display mode
-        region_filter: Selected region filter
-        country_list: Country metadata DataFrame
-        
-    Returns:
-        Processed DataFrame ready for plotting
     """
-    if not selected_isos:
-        return pd.DataFrame()
-        
-    # Base filtering
+    # Base filtering on year and chemical category
     filtered_df = df[
         (df['year'] >= year_range[0]) & 
         (df['year'] <= year_range[1])
     ].copy()
     
-    # Apply chemical filter - Modified to handle "All" correctly
-    if chemical_category == "All":
-        filtered_df = filtered_df[filtered_df['chemical'] == "All"]
-    else:
+    # Apply chemical filter
+    # Assumes 'All' is a literal value in the 'chemical' column for aggregated data,
+    # or that if chemical_category is 'All' (from UI), we want data where df['chemical'] == 'All'.
+    # If 'All' in UI means "do not filter by chemical", this logic needs to change.
+    # Based on R code, it seems chemical_category is always filtered directly.
+    if chemical_category != "All": # If "All" means show all chemicals, then this filter is applied only if a specific chemical is chosen.
         filtered_df = filtered_df[filtered_df['chemical'] == chemical_category]
-    
-        
+    # If 'All' is a category in your data that means "all chemicals combined", then:
+    # filtered_df = filtered_df[filtered_df['chemical'] == chemical_category]
+    # For this implementation, let's assume if chemical_category == "All" from UI, we filter for rows where df['chemical'] == "All"
+    # This was the previous logic:
+    # if chemical_category == "All":
+    #     filtered_df = filtered_df[filtered_df['chemical'] == "All"]
+    # else:
+    #     filtered_df = filtered_df[filtered_df['chemical'] == chemical_category]
+    # Let's stick to the more common interpretation: "All" means no specific chemical filter.
+    if chemical_category != "All":
+         filtered_df = filtered_df[filtered_df['chemical'] == chemical_category]
+
+
+    result = pd.DataFrame() # Initialize result
+
     # Logic based on display mode
     if display_mode in ["individual", "compare_individuals"]:
+        if not selected_isos and display_mode == "compare_individuals" and country_list is not None:
+            # For choropleth/general view, if no specific ISOs selected, use all from country_list
+            # This case is handled by the caller for choropleth by passing all relevant ISOs.
+            # Here, if selected_isos is empty, we return empty.
+             if not selected_isos:
+                return pd.DataFrame()
+
         # Individual country data
-        result = filtered_df[
+        result_data_filtered = filtered_df[
             (filtered_df['is_collab'] == False) & 
             (filtered_df['iso2c'].isin(selected_isos))
         ].copy()
         
-        # Apply region filter
-        if region_filter != "All":
-            result = result[result['region'] == region_filter]
+        # Apply region filter (if 'region' column exists)
+        if region_filter != "All" and 'region' in result_data_filtered.columns:
+            result_data_filtered = result_data_filtered[result_data_filtered['region'] == region_filter]
             
+        if result_data_filtered.empty:
+            return pd.DataFrame()
+
         # Add plotting metadata
         if country_list is not None:
-            result = result.merge(
-                country_list[['iso2c', 'country', 'cc', 'region']], 
+            # Ensure country_list has unique iso2c for merging if that's expected
+            # country_list_unique_iso = country_list.drop_duplicates(subset=['iso2c'])
+            result = result_data_filtered.merge(
+                country_list[['iso2c', 'country', 'cc', 'region']].drop_duplicates(subset=['iso2c']), # Use unique mapping
                 on='iso2c', 
                 how='left',
-                suffixes=('', '_meta')
+                suffixes=('_original', '_meta') # Avoid column name clashes, then pick
             )
+            # If 'country' or 'region' existed, they might now be 'country_original', 'region_original'
+            # We want the merged ones if available, or original if not.
+            if 'country_meta' in result.columns: result['country'] = result['country_meta']
+            if 'region_meta' in result.columns: result['region'] = result['region_meta']
+            if 'cc_meta' in result.columns: result['cc'] = result['cc_meta']
+
+        else:
+            result = result_data_filtered
             
-        result['plot_group'] = result['country']
-        result['plot_color'] = result.get('cc', '#808080')
+        result['plot_group'] = result['country'] if 'country' in result.columns else result['iso2c']
+        result['plot_color'] = result['cc'] if 'cc' in result.columns else '#808080' # Default color
         
     elif display_mode == "find_collaborations":
-        # Collaboration data
+        if not selected_isos: # Need at least one country to find its collaborations
+            return pd.DataFrame()
+
         collab_df = filtered_df[filtered_df['is_collab'] == True].copy()
         
+        if collab_df.empty:
+            return pd.DataFrame()
+
         # Filter for collaborations involving ALL selected countries
-        mask = pd.Series([True] * len(collab_df))
-        for iso in selected_isos:
-            mask &= collab_df['iso2c'].str.contains(iso)
-            
+        def check_all_partners_present(collab_iso_string, required_partners_set):
+            if pd.isna(collab_iso_string): return False
+            current_partners = set(str(collab_iso_string).split('-'))
+            return required_partners_set.issubset(current_partners)
+
+        selected_isos_set = set(selected_isos)
+        mask = collab_df['iso2c'].apply(lambda x: check_all_partners_present(x, selected_isos_set))
         result = collab_df[mask].copy()
-        
+
         if not result.empty:
-            # Add collaboration metadata
-            result['partners'] = result['iso2c'].str.split('-')
+            result['partners'] = result['iso2c'].apply(lambda x: str(x).split('-') if pd.notna(x) else [])
             result['collab_size'] = result['partners'].apply(len)
-            result['collab_type'] = result['collab_size'].map({
-                2: "Bilateral",
-                3: "Trilateral", 
-                4: "4-country",
-            }).fillna("5-country+")
             
-            result['plot_group'] = result['country']
-            result['plot_color'] = result['collab_type']
-    else:
-        result = pd.DataFrame()
+            def get_collab_type(size):
+                if size == 2: return "Bilateral"
+                if size == 3: return "Trilateral"
+                if size == 4: return "4-country"
+                if size >= 5: return "5-country+"
+                return "Unknown"
+            
+            result['collab_type'] = result['collab_size'].apply(get_collab_type)
+            
+            # 'country' column for collaborations is the ID string like "US-CN"
+            result['plot_group'] = result['country'] 
+            result['plot_color_group'] = result['collab_type']
+        else:
+            return pd.DataFrame() # No matching collaborations found
+            
+    else: # Should not happen with radio buttons
+        return pd.DataFrame()
         
-    # Ensure numeric types
+    # Ensure numeric types and consistent percentage column name
     if not result.empty:
-        result['year'] = pd.to_numeric(result['year'])
-        result['percentage'] = pd.to_numeric(result['percentage'])
-        result = result.rename(columns={'percentage': 'total_percentage'})
+        if 'year' in result.columns:
+            result['year'] = pd.to_numeric(result['year'], errors='coerce')
         
+        # Standardize percentage column to 'total_percentage'
+        # Check for common names and rename
+        found_percentage_col = False
+        for col_name in ['percentage', 'value', 'value_raw', 'percentage_x']: # Add other possibilities if any
+            if col_name in result.columns:
+                result['total_percentage'] = pd.to_numeric(result[col_name], errors='coerce')
+                if col_name != 'total_percentage': # Avoid renaming if already correct
+                    result = result.drop(columns=[col_name])
+                found_percentage_col = True
+                break
+        
+        if not found_percentage_col and 'total_percentage' not in result.columns:
+            # If no known percentage column is found, this data might be unusable for plots
+            # Consider returning empty or adding a placeholder with NaNs
+            print(f"Warning: No recognizable percentage column found in data for display_mode='{display_mode}'. Columns: {result.columns.tolist()}")
+            # result['total_percentage'] = np.nan # Or handle error appropriately
+
+        result = result.dropna(subset=['year', 'total_percentage']) # Drop rows where essential numerics are NaN
+
     return result
 
 def create_main_plot(

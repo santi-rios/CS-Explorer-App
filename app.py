@@ -111,6 +111,15 @@ def create_app():
                         choices=initial_data['chemical_categories'],
                         selected="All" if "All" in initial_data['chemical_categories'] else initial_data['chemical_categories'][0]
                     ),
+                    ui.input_radio_buttons(
+                        "display_mode_input",
+                        "Display Mode:",
+                        choices={
+                            "compare_individuals": "Compare Individuals",
+                            "find_collaborations": "Find Collaborations"
+                        },
+                        selected="compare_individuals"
+                    ),
                     ui.input_action_button(
                         "clear_selection",
                         "Clear Selection",
@@ -180,11 +189,11 @@ def create_app():
             return
             
         df_main = data_objects['data'] 
-        country_list_main = data_objects['country_list'] # This is the correct country_list for the server scope
+        country_list_main = data_objects['country_list']
         
         # Reactive values
         selected_countries = reactive.Value([])
-        display_mode = reactive.Value("compare_individuals") # Keep this as is or add UI to change it
+        # display_mode = reactive.Value("compare_individuals") # Removed, will use input.display_mode_input() directly
 
         @reactive.Effect
         @reactive.event(input.map_click_iso)
@@ -219,33 +228,50 @@ def create_app():
         @render_widget
         def main_plot():
             """Main trends plot"""
-            # Pass the required arguments to get_display_data
+            current_display_mode = input.display_mode_input()
             data = get_display_data(
                 df=df_main,
                 selected_isos=selected_countries.get(),
                 year_range=input.years(),
                 chemical_category=input.chemical_category(),
-                display_mode=display_mode.get(), # or a specific mode if intended
+                display_mode=current_display_mode,
                 region_filter=input.region_filter(),
                 country_list=country_list_main
             )
             if data.empty:
-                return create_empty_plot("Select countries and filters to view trends")
+                message = "Select countries and filters to view trends."
+                if current_display_mode == "find_collaborations" and not selected_countries.get():
+                    message = "Select at least one country to find collaborations."
+                elif current_display_mode == "find_collaborations":
+                    message = "No collaborations found for the selected countries and filters."
+                return create_empty_plot(message)
                 
-            return create_trends_plot(data, selected_countries.get(), display_mode.get())
+            return create_trends_plot(data, selected_countries.get(), current_display_mode)
             
         @output
         @render_widget  
         def contribution_map():
             """Contribution choropleth map"""
-            # Pass the required arguments to get_display_data
+            countries_for_choropleth = country_list_main.copy()
+            current_region_filter = input.region_filter()
+
+            if current_region_filter != "All":
+                countries_for_choropleth = countries_for_choropleth[
+                    countries_for_choropleth['region'] == current_region_filter
+                ]
+            
+            isos_for_choropleth = countries_for_choropleth['iso2c'].unique().tolist()
+            
+            if not isos_for_choropleth:
+                 return create_empty_plot(f"No countries found for region: {current_region_filter}")
+
             data = get_display_data(
                 df=df_main,
-                selected_isos=selected_countries.get(),
+                selected_isos=isos_for_choropleth, 
                 year_range=input.years(),
                 chemical_category=input.chemical_category(),
-                display_mode=display_mode.get(), # or a specific mode
-                region_filter=input.region_filter(),
+                display_mode="compare_individuals", # Choropleth shows individual country data
+                region_filter=current_region_filter,
                 country_list=country_list_main
             )
             if data.empty:
@@ -257,20 +283,26 @@ def create_app():
         @render.data_frame
         def summary_table():
             """Summary data table"""
-            # Pass the required arguments to get_display_data
+            current_display_mode = input.display_mode_input()
             data = get_display_data(
                 df=df_main,
                 selected_isos=selected_countries.get(),
                 year_range=input.years(),
                 chemical_category=input.chemical_category(),
-                display_mode=display_mode.get(), # or a specific mode
+                display_mode=current_display_mode,
                 region_filter=input.region_filter(),
                 country_list=country_list_main
             )
             if data.empty:
-                return pd.DataFrame({"Message": ["No data available for current selections"]})
+                message = "No data available for current selections."
+                if current_display_mode == "find_collaborations" and not selected_countries.get():
+                    message = "Select at least one country to find collaborations for the table."
+                elif current_display_mode == "find_collaborations":
+                    message = "No collaborations found for the selected countries and filters."
+
+                return pd.DataFrame({"Message": [message]})
                 
-            return create_summary_dataframe(data, display_mode.get())
+            return create_summary_dataframe(data, current_display_mode)
 
         # Article plot outputs
         @output
@@ -520,56 +552,74 @@ def create_trends_plot(data: pd.DataFrame, selected_countries: List[str], mode: 
     """Create trends plot using Plotly"""
     fig = go.Figure()
     
-    # Check which column name is used for the percentage values
-    # Possible names: 'percentage', 'value', 'value_raw', 'percentage_x'
-    value_column = None
-    for possible_col in ['percentage', 'value', 'value_raw', 'percentage_x']:
-        if possible_col in data.columns:
-            value_column = possible_col
-            break
+    value_column = 'total_percentage' # Expect this from get_display_data
     
-    if value_column is None:
-        # No valid column found, create empty plot with error message
+    if value_column not in data.columns or data.empty:
+        # No valid column found, or data is empty
         fig.add_annotation(
-            text="Error: Missing value column in data",
+            text=f"Error: Missing '{value_column}' column or no data.",
             xref="paper", yref="paper",
             x=0.5, y=0.5, showarrow=False
         )
         fig.update_layout(
             xaxis=dict(visible=False),
-            yaxis=dict(visible=False)
+            yaxis=dict(visible=False),
+            template='plotly_white'
         )
         return fig
     
-    if mode == "compare_individuals" or len(selected_countries) == 1:
+    plot_title = "Chemical Space Contribution Trends"
+
+    if mode == "compare_individuals":
         # Individual country trends
-        for country in data['country'].unique():
-            country_data = data[data['country'] == country]
+        for country_name in data['plot_group'].unique(): # plot_group is country name for individuals
+            country_data = data[data['plot_group'] == country_name]
+            color = country_data['plot_color'].iloc[0] if 'plot_color' in country_data.columns and not country_data.empty else None
             fig.add_trace(go.Scatter(
                 x=country_data['year'],
                 y=country_data[value_column],
                 mode='lines+markers',
-                name=country,
-                hovertemplate=f"<b>{country}</b><br>" +
-                             "Year: %{x}<br>" +
-                             f"{value_column}: %{{y:.2f}}%<extra></extra>"
+                name=str(country_name),
+                line=dict(color=color if color else None),
+                hovertemplate=(
+                    f"<b>{country_name}</b><br>" +
+                    "Year: %{x}<br>" +
+                    f"{value_column}: %{{y:.2f}}%<extra></extra>"
+                )
             ))
-    else:
+        plot_title = "Individual Country Contribution Trends"
+    elif mode == "find_collaborations":
         # Collaboration trends
-        for collab in data['iso2c'].unique():
-            collab_data = data[data['iso2c'] == collab]
+        collab_type_colors = {
+            "Bilateral": "rgba(255, 127, 14, 0.9)",
+            "Trilateral": "rgba(44, 160, 44, 0.9)",
+            "4-country": "rgba(214, 39, 40, 0.9)",
+            "5-country+": "rgba(148, 103, 189, 0.9)",
+            "Unknown": "rgba(127, 127, 127, 0.9)"
+        }
+
+        for collab_id in data['plot_group'].unique(): # plot_group is collab ID string
+            collab_data = data[data['plot_group'] == collab_id]
+            if collab_data.empty: continue
+
+            collab_type = collab_data['plot_color_group'].iloc[0] if 'plot_color_group' in collab_data.columns else "Unknown"
+            
             fig.add_trace(go.Scatter(
                 x=collab_data['year'],
-                y=collab_data[value_column], 
+                y=collab_data[value_column],
                 mode='lines+markers',
-                name=collab,
-                hovertemplate=f"<b>{collab}</b><br>" +
-                             "Year: %{x}<br>" +
-                             f"{value_column}: %{{y:.2f}}%<extra></extra>"
+                name=str(collab_id),
+                line=dict(color=collab_type_colors.get(str(collab_type), collab_type_colors["Unknown"])),
+                hovertemplate=(
+                    f"<b>Collaboration: {collab_id}</b> ({collab_type})<br>" +
+                    "Year: %{x}<br>" +
+                    f"{value_column}: %{{y:.2f}}%<extra></extra>"
+                )
             ))
+        plot_title = "Collaboration Trends"
     
     fig.update_layout(
-        title="Chemical Space Contribution Trends",
+        title=plot_title,
         xaxis_title="Year",
         yaxis_title="% of New Substances",
         hovermode='closest',
@@ -580,80 +630,92 @@ def create_trends_plot(data: pd.DataFrame, selected_countries: List[str], mode: 
 
 def create_contribution_choropleth(data: pd.DataFrame):
     """Create world choropleth map"""
-    # Check which column name is used for the percentage values
-    value_column = None
-    for possible_col in ['percentage', 'value', 'value_raw', 'percentage_x']:
-        if possible_col in data.columns:
-            value_column = possible_col
-            break
-    
-    if value_column is None:
+    value_column = 'total_percentage' # Expect this from get_display_data
+
+    if value_column not in data.columns or data.empty:
         fig = go.Figure()
         fig.add_annotation(
-            text="Error: Missing value column in data",
+            text=f"Error: Missing '{value_column}' column or no data for choropleth.",
             xref="paper", yref="paper",
             x=0.5, y=0.5, showarrow=False
         )
-        fig.update_layout(
-            xaxis=dict(visible=False),
-            yaxis=dict(visible=False)
-        )
+        fig.update_layout(xaxis=dict(visible=False), yaxis=dict(visible=False), template='plotly_white')
         return fig
     
-    # Calculate average contribution by country
-    avg_data = data.groupby(['iso2c', 'country'])[value_column].mean().reset_index()
+    required_cols = ['iso2c', 'country', value_column]
+    if not all(col in data.columns for col in required_cols):
+        missing = [col for col in required_cols if col not in data.columns]
+        return create_empty_plot(f"Choropleth data missing: {missing}")
+
+    avg_data = data.groupby(['iso2c', 'country'], as_index=False)[value_column].mean()
     
+    if avg_data.empty:
+        return create_empty_plot("No average data to display on choropleth.")
+
     fig = px.choropleth(
         avg_data,
         locations='iso2c',
         color=value_column,
         hover_name='country',
-        color_continuous_scale='Viridis',
-        title='Average Chemical Space Contribution'
+        color_continuous_scale='Viridis', # Or any other preferred scale like 'YlGnBu'
+        title='Average Chemical Space Contribution',
+        labels={value_column: 'Avg. Contribution (%)'}
     )
     
     fig.update_layout(
-        geo=dict(showframe=False, showcoastlines=True),
-        title_x=0.5
+        geo=dict(showframe=False, showcoastlines=True, projection_type='natural earth'),
+        title_x=0.5,
+        template='plotly_white'
     )
     
     return fig
 
 def create_summary_dataframe(data: pd.DataFrame, mode: str) -> pd.DataFrame:
     """Create summary statistics table"""
-    # Check which column name is used for the percentage values
-    value_column = None
-    for possible_col in ['percentage', 'value', 'value_raw', 'percentage_x']:
-        if possible_col in data.columns:
-            value_column = possible_col
-            break
-    
-    if value_column is None:
-        # Return empty DataFrame with message
-        return pd.DataFrame({'Error': ['Missing value column in data']})
+    value_column = 'total_percentage' # Expect this from get_display_data
+
+    if value_column not in data.columns or data.empty:
+        return pd.DataFrame({'Error': [f"Missing '{value_column}' column or no data for summary."]})
     
     if mode == "find_collaborations":
+        required_cols = ['plot_group', 'chemical', 'collab_type', value_column]
+        if not all(col in data.columns for col in required_cols):
+            missing = [col for col in required_cols if col not in data.columns]
+            return pd.DataFrame({'Error': [f"Summary data for collaborations missing: {missing}"]})
+        
         summary = (
-            data.groupby(['iso2c', 'chemical'])
-            .agg({
-                value_column: ['mean', 'max', 'count']
-            })
+            data.groupby(['plot_group', 'chemical', 'collab_type'])
+            .agg(
+                avg_percentage=(value_column, 'mean'),
+                max_percentage=(value_column, 'max'),
+                years_present=('year', 'nunique') # Count distinct years
+            )
             .round(2)
             .reset_index()
         )
-        summary.columns = ['Collaboration', 'Chemical', 'Avg %', 'Max %', 'Years Present']
-    else:
+        summary.columns = ['Collaboration', 'Chemical', 'Type', 'Avg %', 'Max %', 'Years Present']
+    elif mode == "compare_individuals":
+        required_cols = ['country', 'iso2c', 'chemical', value_column]
+        if not all(col in data.columns for col in required_cols):
+            missing = [col for col in required_cols if col not in data.columns]
+            return pd.DataFrame({'Error': [f"Summary data for individuals missing: {missing}"]})
+
         summary = (
             data.groupby(['country', 'iso2c', 'chemical'])
-            .agg({
-                value_column: ['mean', 'max', 'count']
-            })
+            .agg(
+                avg_percentage=(value_column, 'mean'),
+                max_percentage=(value_column, 'max'),
+                years_present=('year', 'nunique') # Count distinct years
+            )
             .round(2)
             .reset_index()
         )
         summary.columns = ['Country', 'ISO', 'Chemical', 'Avg %', 'Max %', 'Years Present']
-    
+    else:
+        return pd.DataFrame({'Message': [f"Summary not available for display mode: {mode}"]})
+        
     return summary
+
 
 def create_article_plot(data: pd.DataFrame, title: str):
     """Create article plots"""
