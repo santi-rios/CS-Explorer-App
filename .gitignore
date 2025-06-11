@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.env
+env/
+venv/
+ENV/
+VENV/
+*.egg-info/
+dist/
+build/
+
+# IDE specific
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Operating System
+.DS_Store
+Thumbs.db
+
+# Data files - uncomment and specify if you have large data files you don't want to track
+# data/*.csv
+# data/*.xlsx
+# data/*.sqlite
+# data/large_dataset.parquet
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# Logs
+*.log
+logs/
+
+# Shiny / Deployment specific
+rsconnect-python/
+# shiny_app.log # If your app generates a specific log file
+
+# Secrets (if you have any local config files with sensitive info)
+# .secrets
+# config.local.py
+# .env.*
+
+*.Identifier
