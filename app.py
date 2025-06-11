@@ -15,47 +15,62 @@ from typing import List, Dict, Optional, Tuple
 import json
 from shinywidgets import render_widget, output_widget
 from folium.plugins import Draw
-from utils.functions import get_display_data # Add this import
+from utils.functions import get_display_data
+import functools
+from functools import lru_cache
+
+# Global cache for expensive operations
+@lru_cache(maxsize=128)
+def cached_get_display_data(
+    selected_isos_tuple: tuple,
+    year_range: tuple,
+    chemical_category: str,
+    display_mode: str,
+    region_filter: str = "All"
+):
+    """Cached version of get_display_data for performance"""
+    # Convert back to list for compatibility
+    selected_isos = list(selected_isos_tuple) if selected_isos_tuple else []
+    
+    # Only load data when actually needed
+    df = pd.read_parquet("./data/data.parquet")
+    country_list = load_country_list()
+    
+    return get_display_data(
+        df=df,
+        selected_isos=selected_isos,
+        year_range=year_range,
+        chemical_category=chemical_category,
+        display_mode=display_mode,
+        region_filter=region_filter,
+        country_list=country_list
+    )
+
+@lru_cache(maxsize=1)
+def load_country_list():
+    """Cached country list loading"""
+    df = pd.read_parquet("./data/data.parquet")
+    return (
+        df[df['is_collab'] == False]
+        .drop_duplicates(subset=['country', 'iso2c', 'lat', 'lng', 'cc', 'region'])
+        .dropna(subset=['country', 'iso2c'])
+        .query("country != '' and iso2c != ''")
+        .fillna({'region': 'Other'})
+        .sort_values('country')
+        .reset_index(drop=True)
+    )
 
 # Main application
 def create_app():
-    # Load data once for UI definition and server
+    # Load minimal data for UI initialization only
     try:
-        df = pd.read_parquet("./data/data.parquet")
+        # Only read metadata for UI, not full dataset
+        df_sample = pd.read_parquet("./data/data.parquet", columns=['chemical', 'year', 'region'])
         
-        # Process country list for UI
-        country_list = (
-            df[df['is_collab'] == False]
-            .drop_duplicates(subset=['country', 'iso2c', 'lat', 'lng', 'cc', 'region'])
-            .dropna(subset=['country', 'iso2c'])
-            .query("country != '' and iso2c != ''")
-            .fillna({'region': 'Other'})
-            .sort_values('country')
-            .reset_index(drop=True)
-        )
-        
-        # Get data for UI elements
-        chemical_categories = sorted(df['chemical'].dropna().unique())
-        regions = sorted(country_list['region'].unique())
-        min_year = int(df['year'].min())
-        max_year = int(df['year'].max())
-
-        # Process article data
-        article_data = pd.DataFrame() # Initialize as empty DataFrame
-        # Define the columns expected for article_data based on your R script and utils/functions.py
-        article_columns_map = {'source': 'source', 'year_x': 'year', 'country_x': 'country', 'percentage_x': 'value'}
-        required_raw_cols = list(article_columns_map.keys())
-
-        if all(col in df.columns for col in required_raw_cols):
-            article_data_raw = df[required_raw_cols].copy()
-            article_data = article_data_raw.rename(columns=article_columns_map)
-            
-            # Filter out rows with missing essential data, similar to R:
-            # !is.na(value) & !is.na(source) & source != ""
-            article_data = article_data.dropna(subset=['value', 'source'])
-            article_data = article_data[article_data['source'] != ""]
-        else:
-            print(f"Warning: Not all required columns for article_data found in DataFrame. Missing: {[col for col in required_raw_cols if col not in df.columns]}")
+        chemical_categories = sorted(df_sample['chemical'].dropna().unique())
+        regions = ['All'] + sorted(df_sample['region'].fillna('Other').unique())
+        min_year = int(df_sample['year'].min())
+        max_year = int(df_sample['year'].max())
         
         initial_data = {
             'chemical_categories': chemical_categories,
@@ -64,136 +79,148 @@ def create_app():
             'max_year': max_year
         }
         
-        data_objects = {
-            'data': df,
-            'country_list': country_list,
-            'chemical_categories': chemical_categories,
-            'regions': regions,
-            'min_year': min_year,
-            'max_year': max_year,
-            'article_data': article_data # Include the processed article_data
-        }
-        
     except Exception as e:
-        print(f"Error loading data: {e}")
+        print(f"Error loading initial data: {e}")
         initial_data = {
             'chemical_categories': ["All"],
-            'regions': [],
+            'regions': ["All"],
             'min_year': 1996,
             'max_year': 2022
         }
-        data_objects = None
 
-    # UI Definition - use initial_data instead of reactive load_data()
+    # UI Definition with improved layout
     app_ui = ui.page_navbar(
         ui.nav_panel(
-            "Explore Chemical Space",
+            "🔬 Explore Chemical Space",
             ui.layout_sidebar(
                 ui.sidebar(
-                    ui.h4("Filters & Options ⚙️"),
+                    ui.h4("⚙️ Filters & Options"),
                     ui.input_select(
                         "region_filter",
-                        "Filter by Region:",
-                        choices=["All"] + initial_data['regions'],
+                        "🌍 Filter by Region:",
+                        choices=initial_data['regions'],
                         selected="All"
                     ),
                     ui.input_slider(
                         "years",
-                        "Year Range:",
+                        "📅 Year Range:",
                         min=initial_data['min_year'],
                         max=initial_data['max_year'],
                         value=[initial_data['min_year'], initial_data['max_year']],
-                        step=1
+                        step=1,
+                        sep=""
                     ),
-                    ui.input_radio_buttons(
+                    ui.input_select(
                         "chemical_category",
-                        "Chemical Space Category:",
+                        "🧪 Chemical Space:",
                         choices=initial_data['chemical_categories'],
-                        selected="All" if "All" in initial_data['chemical_categories'] else initial_data['chemical_categories'][0]
+                        selected="All"
                     ),
                     ui.input_radio_buttons(
                         "display_mode_input",
-                        "Display Mode:",
+                        "📊 Display Mode:",
                         choices={
-                            "compare_individuals": "Compare Individuals",
+                            "compare_individuals": "Compare Countries",
                             "find_collaborations": "Find Collaborations"
                         },
                         selected="compare_individuals"
                     ),
-                    ui.input_action_button(
-                        "clear_selection",
-                        "Clear Selection",
-                        class_="btn-outline-danger"
+                    ui.div(
+                        ui.input_action_button(
+                            "clear_selection",
+                            "🗑️ Clear Selection",
+                            class_="btn-outline-danger w-100"
+                        ),
+                        ui.div(
+                            ui.output_text("selection_info"),
+                            class_="mt-2 text-muted small"
+                        )
                     ),
                     width=300
                 ),
                 ui.card(
-                    ui.card_header("Interactive Chemical Space Map"),
-                    # ui.output_ui("map_output"),
+                    ui.card_header("🗺️ Interactive Chemical Space Map"),
                     ui.output_ui("map_output"),
                 ),
                 ui.navset_card_tab(
                     ui.nav_panel(
-                        "Trends",
+                        "📈 Trends",
                         output_widget("main_plot")
                     ),
                     ui.nav_panel(
-                        "Contribution Map", 
+                        "🌍 Global Map", 
                         output_widget("contribution_map")
                     ),
                     ui.nav_panel(
-                        "Data Table",
+                        "📋 Data Table",
                         ui.output_data_frame("summary_table")
                     )
                 )
             )
         ),
         ui.nav_panel(
-            "Article Highlights",
+            "📄 Article Highlights",
             ui.navset_card_tab(
                 ui.nav_panel(
-                    "Main Countries",
+                    "🏆 Main Countries",
                     output_widget("country_cs_plot")
                 ),
                 ui.nav_panel(
-                    "Top Collaborations",
-                    ui.input_select(
-                        "top_collabs_chem_filter",
-                        "Chemical Category:",
-                        choices=initial_data['chemical_categories'],
-                        selected="All" if "All" in initial_data['chemical_categories'] else initial_data['chemical_categories'][0]
-                    ),
-                    ui.input_radio_buttons(
-                        "top_data_type_filter",
-                        "Show Top:",
-                        choices={
-                            "collabs": "Collaborations",
-                            "individuals": "Individual Countries"
-                        },
-                        selected="collabs"
+                    "🤝 Top Collaborations",
+                    ui.row(
+                        ui.column(6,
+                            ui.input_select(
+                                "top_collabs_chem_filter",
+                                "Chemical Category:",
+                                choices=initial_data['chemical_categories'],
+                                selected="All"
+                            )
+                        ),
+                        ui.column(6,
+                            ui.input_radio_buttons(
+                                "top_data_type_filter",
+                                "Show Top:",
+                                choices={
+                                    "collabs": "Collaborations",
+                                    "individuals": "Countries"
+                                },
+                                selected="collabs"
+                            )
+                        )
                     ),
                     output_widget("article_top_collabs_plot")
                 ),
-                ui.nav_panel("GDP", output_widget("article_gdp_plot")),
-                ui.nav_panel("Researchers", output_widget("article_researchers_plot")),
-                ui.nav_panel("CS Expansion", output_widget("article_cs_expansion_plot"))
+                ui.nav_panel("💰 GDP", output_widget("article_gdp_plot")),
+                ui.nav_panel("👥 Researchers", output_widget("article_researchers_plot")),
+                ui.nav_panel("📊 CS Expansion", output_widget("article_cs_expansion_plot"))
             )
         ),
-        title="Chemical Space Explorer",
+        title="Chemical Space Explorer 🧬",
         id="navbar"
     )
 
     def server(input, output, session):
-        # Use the data loaded above
-        if not data_objects:
-            return
-            
-        df_main = data_objects['data'] 
-        country_list_main = data_objects['country_list']
-        
         # Reactive values
         selected_countries = reactive.Value([])
-        # display_mode = reactive.Value("compare_individuals") # Removed, will use input.display_mode_input() directly
+        
+        # Cached reactive for country list
+        @reactive.Calc
+        def country_list():
+            return load_country_list()
+        
+        # Optimized reactive for main data
+        @reactive.Calc
+        def filtered_data():
+            # Only load full data when needed and cache results
+            selected_tuple = tuple(sorted(selected_countries.get())) if selected_countries.get() else ()
+            
+            return cached_get_display_data(
+                selected_isos_tuple=selected_tuple,
+                year_range=tuple(input.years()),
+                chemical_category=input.chemical_category(),
+                display_mode=input.display_mode_input(),
+                region_filter=input.region_filter()
+            )
 
         @reactive.Effect
         @reactive.event(input.map_click_iso)
@@ -201,8 +228,6 @@ def create_app():
             clicked_iso = input.map_click_iso()
             if clicked_iso:
                 current_selection = list(selected_countries())
-                # Toggle selection: if already selected, remove; otherwise, add.
-                # If you want single selection, just do: selected_countries.set([clicked_iso])
                 if clicked_iso in current_selection:
                     current_selection.remove(clicked_iso)
                 else:
@@ -213,219 +238,305 @@ def create_app():
         @reactive.event(input.clear_selection)
         def _clear_all_selections():
             selected_countries.set([])
-            # Optionally, reset other inputs if needed
-            # ui.update_select("region_filter", selected="All") # Example
+
+        @reactive.Effect
+        @reactive.event(input.region_filter)
+        def _handle_region_change():
+            """Optional: Clear selections when region filter changes"""
+            # You can uncomment this if you want selections to clear when changing regions
+            # selected_countries.set([])
+            pass
+
+        @output
+        @render.text
+        def selection_info():
+            """Show enhanced selection info with region context"""
+            count = len(selected_countries.get())
+            current_region = input.region_filter()
+            
+            # Get available countries in current region
+            all_countries = country_list()
+            if current_region != "All":
+                available_countries = all_countries[
+                    all_countries['region'] == current_region
+                ]
+            else:
+                available_countries = all_countries
+            
+            available_count = len(available_countries)
+            
+            if count == 0:
+                return f"No countries selected (from {available_count} available in {current_region})"
+            elif count == 1:
+                return f"1 country selected (from {available_count} available in {current_region})"
+            else:
+                return f"{count} countries selected (from {available_count} available in {current_region})"
 
         @output
         @render.ui
         def map_output():
-            """Render the interactive map"""
-            # Ensure you are using country_list_main from the server function's scope
-            m = create_folium_map(country_list_main, selected_countries.get())
+            """Render the interactive map with region filtering"""
+            # Apply region filter to countries shown on map
+            all_countries = country_list()
+            current_region_filter = input.region_filter()
+            
+            if current_region_filter != "All":
+                filtered_countries = all_countries[
+                    all_countries['region'] == current_region_filter
+                ]
+            else:
+                filtered_countries = all_countries
+            
+            m = create_folium_map(filtered_countries, selected_countries.get())
             return ui.HTML(m._repr_html_())
             
         @output  
         @render_widget
         def main_plot():
-            """Main trends plot"""
-            current_display_mode = input.display_mode_input()
-            data = get_display_data(
-                df=df_main,
-                selected_isos=selected_countries.get(),
-                year_range=input.years(),
-                chemical_category=input.chemical_category(),
-                display_mode=current_display_mode,
-                region_filter=input.region_filter(),
-                country_list=country_list_main
-            )
+            """Main trends plot with validation"""
+            current_mode = input.display_mode_input()
+            selected = selected_countries.get()
+            
+            # Validate collaboration mode
+            if current_mode == "find_collaborations" and len(selected) < 2:
+                return create_empty_plot(
+                    "🤝 Select at least 2 countries to find collaborations.\n"
+                    "Click on countries in the map above."
+                )
+            
+            data = filtered_data()
             if data.empty:
-                message = "Select countries and filters to view trends."
-                if current_display_mode == "find_collaborations" and not selected_countries.get():
-                    message = "Select at least one country to find collaborations."
-                elif current_display_mode == "find_collaborations":
-                    message = "No collaborations found for the selected countries and filters."
-                return create_empty_plot(message)
+                if current_mode == "find_collaborations":
+                    return create_empty_plot("No collaborations found for selected countries and filters.")
+                else:
+                    return create_empty_plot("Select countries from the map to view trends.")
                 
-            return create_trends_plot(data, selected_countries.get(), current_display_mode)
+            return create_trends_plot(data, selected, current_mode)
             
         @output
         @render_widget  
         def contribution_map():
-            """Contribution choropleth map"""
-            countries_for_choropleth = country_list_main.copy()
-            current_region_filter = input.region_filter()
-
-            if current_region_filter != "All":
-                countries_for_choropleth = countries_for_choropleth[
-                    countries_for_choropleth['region'] == current_region_filter
-                ]
-            
-            isos_for_choropleth = countries_for_choropleth['iso2c'].unique().tolist()
-            
-            if not isos_for_choropleth:
-                 return create_empty_plot(f"No countries found for region: {current_region_filter}")
-
-            data = get_display_data(
-                df=df_main,
-                selected_isos=isos_for_choropleth, 
-                year_range=input.years(),
-                chemical_category=input.chemical_category(),
-                display_mode="compare_individuals", # Choropleth shows individual country data
-                region_filter=current_region_filter,
-                country_list=country_list_main
-            )
-            if data.empty:
-                return create_empty_plot("No data for contribution map with current selections")
+            """Fixed contribution choropleth map"""
+            try:
+                # Load data for all countries in region
+                df = pd.read_parquet("./data/data.parquet")
+                countries_for_choropleth = country_list()
                 
-            return create_contribution_choropleth(data)
+                current_region_filter = input.region_filter()
+                if current_region_filter != "All":
+                    countries_for_choropleth = countries_for_choropleth[
+                        countries_for_choropleth['region'] == current_region_filter
+                    ]
+                
+                isos_for_choropleth = countries_for_choropleth['iso2c'].unique().tolist()
+                
+                if not isos_for_choropleth:
+                     return create_empty_plot(f"No countries found for region: {current_region_filter}")
+
+                # Filter data for choropleth
+                choropleth_data = get_display_data(
+                    df=df,
+                    selected_isos=isos_for_choropleth, 
+                    year_range=input.years(),
+                    chemical_category=input.chemical_category(),
+                    display_mode="compare_individuals",
+                    region_filter=current_region_filter,
+                    country_list=countries_for_choropleth
+                )
+                
+                if choropleth_data.empty:
+                    return create_empty_plot("No data for global map with current selections")
+                    
+                return create_contribution_choropleth(choropleth_data)
+                
+            except Exception as e:
+                return create_empty_plot(f"Error creating map: {str(e)}")
             
         @output
         @render.data_frame
         def summary_table():
             """Summary data table"""
-            current_display_mode = input.display_mode_input()
-            data = get_display_data(
-                df=df_main,
-                selected_isos=selected_countries.get(),
-                year_range=input.years(),
-                chemical_category=input.chemical_category(),
-                display_mode=current_display_mode,
-                region_filter=input.region_filter(),
-                country_list=country_list_main
-            )
+            data = filtered_data()
             if data.empty:
-                message = "No data available for current selections."
-                if current_display_mode == "find_collaborations" and not selected_countries.get():
-                    message = "Select at least one country to find collaborations for the table."
-                elif current_display_mode == "find_collaborations":
-                    message = "No collaborations found for the selected countries and filters."
-
+                current_mode = input.display_mode_input()
+                if current_mode == "find_collaborations" and len(selected_countries.get()) < 2:
+                    message = "Select at least 2 countries to find collaborations."
+                else:
+                    message = "No data available for current selections."
                 return pd.DataFrame({"Message": [message]})
                 
-            return create_summary_dataframe(data, current_display_mode)
+            return create_summary_dataframe(data, input.display_mode_input())
 
-        # Article plot outputs
+        # Article plot outputs with lazy loading
         @output
         @render_widget
         def country_cs_plot():
-            article_data = data_objects['article_data']
-            if article_data.empty:
-                return create_empty_plot("No article data available")
-            
-            df_filtered = article_data[article_data['source'] == "Country participation in the CS"]
-            if df_filtered.empty:
-                return create_empty_plot("No country participation data available")
-            
-            return create_article_plot(df_filtered, "Country participation in the CS")
+            try:
+                article_data = load_article_data()
+                if article_data.empty:
+                    return create_empty_plot("No article data available")
+                
+                df_filtered = article_data[article_data['source'] == "Country participation in the CS"]
+                if df_filtered.empty:
+                    return create_empty_plot("No country participation data available")
+                
+                return create_article_plot(df_filtered, "Country participation in the CS")
+            except Exception as e:
+                return create_empty_plot(f"Error loading article data: {str(e)}")
 
         @output
         @render_widget
         def article_top_collabs_plot():
-            is_collab = input.top_data_type_filter() == "collabs"
-            chem_filter = input.top_collabs_chem_filter()
-            
-            filtered_data = df_main[
-                (df_main['is_collab'] == is_collab) & 
-                (df_main['chemical'] == chem_filter)
-            ]
-            
-            if filtered_data.empty:
-                return create_empty_plot("No data available")
+            try:
+                df = pd.read_parquet("./data/data.parquet")
+                is_collab = input.top_data_type_filter() == "collabs"
+                chem_filter = input.top_collabs_chem_filter()
                 
-            # Get top 10
-            top_data = (
-                filtered_data.groupby('country')['percentage']
-                .mean()
-                .sort_values(ascending=False)
-                .head(10)
-            )
-            
-            return create_top_trends_plot(
-                filtered_data[filtered_data['country'].isin(top_data.index)],
-                f"Top 10 {'Collaborations' if is_collab else 'Countries'}: {chem_filter}"
-            )
+                filtered_data = df[
+                    (df['is_collab'] == is_collab) & 
+                    (df['chemical'] == chem_filter)
+                ]
+                
+                if filtered_data.empty:
+                    return create_empty_plot("No data available")
+                    
+                # Get top 10
+                top_data = (
+                    filtered_data.groupby('country')['percentage']
+                    .mean()
+                    .sort_values(ascending=False)
+                    .head(10)
+                )
+                
+                return create_top_trends_plot(
+                    filtered_data[filtered_data['country'].isin(top_data.index)],
+                    f"Top 10 {'Collaborations' if is_collab else 'Countries'}: {chem_filter}"
+                )
+            except Exception as e:
+                return create_empty_plot(f"Error: {str(e)}")
 
         @output
         @render_widget
         def article_gdp_plot():
-            article_data = data_objects['article_data']
-            if article_data.empty:
-                # Create dummy data for testing
-                dummy_data = pd.DataFrame({
-                    'source': ['Annual growth rate of the GDP'] * 69,
-                    'year': list(range(2000, 2023)) * 3,
-                    'country': ['United States'] * 23 + ['China'] * 23 + ['Germany'] * 23,
-                    'value': np.random.uniform(-5, 10, 69),
-                })
-                return create_gdp_plot(dummy_data)
-            
-            gdp_data = article_data[article_data['source'] == "Annual growth rate of the GDP"]
-            if gdp_data.empty:
-                return create_empty_plot("No GDP data available")
+            try:
+                article_data = load_article_data()
+                if article_data.empty:
+                    return create_dummy_gdp_plot()
                 
-            return create_gdp_plot(gdp_data)
+                gdp_data = article_data[article_data['source'] == "Annual growth rate of the GDP"]
+                if gdp_data.empty:
+                    return create_dummy_gdp_plot()
+                    
+                return create_gdp_plot(gdp_data)
+            except Exception as e:
+                return create_dummy_gdp_plot()
 
         @output
         @render_widget
         def article_researchers_plot():
-            article_data = data_objects['article_data']
-            if article_data.empty:
-                # Create dummy data for testing
-                dummy_data = pd.DataFrame({
-                    'source': ['Number of Researchers'] * 69,
-                    'year': list(range(2000, 2023)) * 3,
-                    'country': ['United States'] * 23 + ['China'] * 23 + ['Germany'] * 23,
-                    'value': np.random.uniform(500000, 2000000, 69),
-                })
-                return create_researchers_plot(dummy_data)
-            
-            researchers_data = article_data[article_data['source'] == "Number of Researchers"]
-            if researchers_data.empty:
-                return create_empty_plot("No researchers data available")
+            try:
+                article_data = load_article_data()
+                if article_data.empty:
+                    return create_dummy_researchers_plot()
                 
-            return create_researchers_plot(researchers_data)
-        
-
-        @reactive.Effect
-        def _validate_chemical_category():
-            current_category = input.chemical_category()
-            if not current_category or str(current_category).strip() == "":
-                # Reset to "All" if invalid selection
-                ui.update_select(
-                    "chemical_category",
-                    selected="All"
-                )
-
+                researchers_data = article_data[article_data['source'] == "Number of Researchers"]
+                if researchers_data.empty:
+                    return create_dummy_researchers_plot()
+                    
+                return create_researchers_plot(researchers_data)
+            except Exception as e:
+                return create_dummy_researchers_plot()
 
         @output
         @render_widget
         def article_cs_expansion_plot():
-            article_data = data_objects['article_data']
-            if article_data.empty:
-                # Create dummy data for testing
-                dummy_data = pd.DataFrame({
-                    'source': ['Expansion of the CS'] * 69,
-                    'year': list(range(2000, 2023)) * 3,
-                    'country': ['United States'] * 23 + ['China'] * 23 + ['Germany'] * 23,
-                    'value': np.random.uniform(1, 50, 69),
-                })
-                return create_cs_expansion_plot(dummy_data)
-            
-            cs_data = article_data[article_data['source'] == "Expansion of the CS"]
-            if cs_data.empty:
-                return create_empty_plot("No CS expansion data available")
+            try:
+                article_data = load_article_data()
+                if article_data.empty:
+                    return create_dummy_cs_expansion_plot()
                 
-            return create_cs_expansion_plot(cs_data)
+                cs_data = article_data[article_data['source'] == "Expansion of the CS"]
+                if cs_data.empty:
+                    return create_dummy_cs_expansion_plot()
+                    
+                return create_cs_expansion_plot(cs_data)
+            except Exception as e:
+                return create_dummy_cs_expansion_plot()
         
     return App(app_ui, server)
 
+# Cached helper functions
+@lru_cache(maxsize=1)
+def load_article_data():
+    """Load and cache article data"""
+    try:
+        df = pd.read_parquet("./data/data.parquet")
+        article_columns_map = {'source': 'source', 'year_x': 'year', 'country_x': 'country', 'percentage_x': 'value'}
+        required_raw_cols = list(article_columns_map.keys())
+
+        if all(col in df.columns for col in required_raw_cols):
+            article_data_raw = df[required_raw_cols].copy()
+            article_data = article_data_raw.rename(columns=article_columns_map)
+            article_data = article_data.dropna(subset=['value', 'source'])
+            article_data = article_data[article_data['source'] != ""]
+            return article_data
+        return pd.DataFrame()
+    except Exception:
+        return pd.DataFrame()
 
 # Helper functions
 def create_folium_map(country_list: pd.DataFrame, selected_countries: List[str]) -> folium.Map:
-    """Create interactive Folium map"""
-    m = folium.Map(location=[30, 10], zoom_start=2)
+    """Create interactive Folium map with improved region handling"""
     
-    # Load world geometries
+    # Determine map center based on filtered countries
+    if not country_list.empty:
+        center_lat = country_list['lat'].mean()
+        center_lng = country_list['lng'].mean()
+        
+        # Adjust zoom based on region spread
+        lat_range = country_list['lat'].max() - country_list['lat'].min()
+        lng_range = country_list['lng'].max() - country_list['lng'].min()
+        
+        # Determine appropriate zoom level
+        if lat_range > 60 or lng_range > 120:  # Global view
+            zoom_start = 2
+        elif lat_range > 30 or lng_range > 60:  # Continental view
+            zoom_start = 3
+        elif lat_range > 15 or lng_range > 30:  # Regional view
+            zoom_start = 4
+        else:  # Local view
+            zoom_start = 5
+    else:
+        center_lat, center_lng, zoom_start = 30, 10, 2
+    
+    m = folium.Map(location=[center_lat, center_lng], zoom_start=zoom_start)
+    
+    # Add region info to map title
+    if len(country_list) > 0:
+        regions_in_map = country_list['region'].unique()
+        if len(regions_in_map) == 1 and regions_in_map[0] != 'Other':
+            map_title = f"Region: {regions_in_map[0]} ({len(country_list)} countries)"
+        else:
+            map_title = f"Showing {len(country_list)} countries"
+        
+        # Add a subtle title overlay
+        title_html = f'''
+        <div style="position: fixed; 
+                    top: 10px; left: 50px; width: 300px; height: 30px; 
+                    background-color: rgba(255, 255, 255, 0.8);
+                    border: 2px solid rgba(0,0,0,0.2);
+                    border-radius: 5px;
+                    z-index:9999; 
+                    font-size:12px;
+                    font-weight: bold;
+                    text-align: center;
+                    padding: 5px;">
+            {map_title}
+        </div>
+        '''
+        m.get_root().html.add_child(folium.Element(title_html))
+    
+    # Load world geometries for better country shapes
     try:
         world_path = "./data/world_boundaries.geojson"
         world = gpd.read_file(world_path)
@@ -439,111 +550,182 @@ def create_folium_map(country_list: pd.DataFrame, selected_countries: List[str])
         if iso_column is None:
             print("Warning: No ISO column found in GeoJSON. Available columns:", world.columns.tolist())
             raise FileNotFoundError("No suitable ISO column found")
-                
+        
+        # Add countries to map
         for _, country_row in country_list.iterrows():
             iso = country_row['iso2c']
             country_name = country_row['country']
-            color = country_row['cc'] if iso in selected_countries else 'lightgray'
+            region = country_row.get('region', 'Unknown')
+            
+            # Enhanced color scheme
+            if iso in selected_countries:
+                color = country_row['cc']  # Use country color when selected
+                fill_opacity = 0.8
+                stroke_weight = 2
+            else:
+                color = 'lightblue'  # Subtle color for unselected
+                fill_opacity = 0.5
+                stroke_weight = 1
             
             country_geo = world[world[iso_column] == iso]
             
             if not country_geo.empty:
-                # Create a popup with working JavaScript
+                # Enhanced popup with region info
                 popup_html = f"""
-                <div>
-                    <b>{country_name} ({iso})</b><br>
+                <div style="min-width: 200px;">
+                    <h4 style="margin: 0 0 10px 0; color: #2c3e50;">
+                        {country_name} ({iso})
+                    </h4>
+                    <p style="margin: 5px 0; color: #7f8c8d;">
+                        <strong>Region:</strong> {region}
+                    </p>
+                    <p style="margin: 5px 0; color: #7f8c8d;">
+                        <strong>Status:</strong> 
+                        {'Selected' if iso in selected_countries else 'Available'}
+                    </p>
                     <button onclick="
                         if (window.parent && window.parent.Shiny) {{
                             window.parent.Shiny.setInputValue('map_click_iso', '{iso}', {{priority: 'event'}});
                         }} else if (window.Shiny) {{
                             window.Shiny.setInputValue('map_click_iso', '{iso}', {{priority: 'event'}});
-                        }} else {{
-                            console.log('Shiny not found, trying alternative...');
-                            try {{
-                                document.dispatchEvent(new CustomEvent('shiny:inputchanged', {{
-                                    detail: {{name: 'map_click_iso', value: '{iso}'}}
-                                }}));
-                            }} catch(e) {{
-                                console.log('Alternative method failed:', e);
-                            }}
                         }}
-                    " style="padding: 5px 10px; margin: 5px 0; cursor: pointer;">
-                        {'Deselect' if iso in selected_countries else 'Select'}
+                    " style="
+                        padding: 8px 16px; 
+                        margin: 10px 0 5px 0; 
+                        cursor: pointer;
+                        background-color: {'#e74c3c' if iso in selected_countries else '#3498db'};
+                        color: white;
+                        border: none;
+                        border-radius: 4px;
+                        font-weight: bold;
+                        width: 100%;
+                    ">
+                        {'🗑️ Deselect' if iso in selected_countries else '✅ Select'}
                     </button>
                 </div>
                 """
                 
                 folium.GeoJson(
                     country_geo.iloc[0].geometry,
-                    style_function=lambda x, color=color: {
+                    style_function=lambda x, color=color, fill_opacity=fill_opacity, weight=stroke_weight: {
                         'fillColor': color,
                         'color': 'white',
-                        'weight': 1,
-                        'fillOpacity': 0.7
+                        'weight': weight,
+                        'fillOpacity': fill_opacity,
+                        'dashArray': '0' if iso in selected_countries else '5, 5'
                     },
-                    tooltip=f"{country_name} ({iso})",
-                    popup=folium.Popup(popup_html, max_width=200)
+                    tooltip=folium.Tooltip(
+                        f"<b>{country_name}</b><br>Region: {region}<br>Click to {'deselect' if iso in selected_countries else 'select'}",
+                        sticky=True
+                    ),
+                    popup=folium.Popup(popup_html, max_width=250)
                 ).add_to(m)
             else:
-                # Fallback to marker
+                # Enhanced fallback markers
                 popup_html = f"""
-                <div>
-                    <b>{country_name} ({iso})</b><br>
+                <div style="min-width: 180px;">
+                    <h4 style="margin: 0 0 10px 0; color: #2c3e50;">
+                        {country_name} ({iso})
+                    </h4>
+                    <p style="margin: 5px 0; color: #7f8c8d;">
+                        <strong>Region:</strong> {region}
+                    </p>
                     <button onclick="
                         if (window.parent && window.parent.Shiny) {{
                             window.parent.Shiny.setInputValue('map_click_iso', '{iso}', {{priority: 'event'}});
                         }} else if (window.Shiny) {{
                             window.Shiny.setInputValue('map_click_iso', '{iso}', {{priority: 'event'}});
                         }}
-                    " style="padding: 5px 10px; margin: 5px 0; cursor: pointer;">
-                        {'Deselect' if iso in selected_countries else 'Select'}
+                    " style="
+                        padding: 8px 16px; 
+                        margin: 10px 0 5px 0; 
+                        cursor: pointer;
+                        background-color: {'#e74c3c' if iso in selected_countries else '#3498db'};
+                        color: white;
+                        border: none;
+                        border-radius: 4px;
+                        font-weight: bold;
+                        width: 100%;
+                    ">
+                        {'🗑️ Deselect' if iso in selected_countries else '✅ Select'}
                     </button>
                 </div>
                 """
                 
                 folium.CircleMarker(
                     location=[country_row['lat'], country_row['lng']],
-                    radius=5,
+                    radius=8 if iso in selected_countries else 5,
                     color=color,
                     fill=True,
                     fill_color=color,
-                    fill_opacity=0.7,
-                    popup=folium.Popup(popup_html, max_width=200),
-                    tooltip=f"{country_name} ({iso})"
+                    fill_opacity=fill_opacity,
+                    weight=stroke_weight,
+                    popup=folium.Popup(popup_html, max_width=220),
+                    tooltip=folium.Tooltip(
+                        f"<b>{country_name}</b><br>Region: {region}",
+                        sticky=True
+                    )
                 ).add_to(m)
                 
     except Exception as e:
         print(f"Error loading GeoJSON: {e}")
-        # Fallback to markers
+        # Enhanced fallback to markers with region info
         for _, country in country_list.iterrows():
-            color = country['cc'] if country['iso2c'] in selected_countries else 'lightgray'
             iso = country['iso2c']
             country_name = country['country']
+            region = country.get('region', 'Unknown')
+            
+            if iso in selected_countries:
+                color = country['cc']
+                radius = 8
+                fill_opacity = 0.8
+            else:
+                color = 'lightblue'
+                radius = 5
+                fill_opacity = 0.5
             
             popup_html = f"""
-            <div>
-                <b>{country_name} ({iso})</b><br>
+            <div style="min-width: 180px;">
+                <h4 style="margin: 0 0 10px 0; color: #2c3e50;">
+                    {country_name} ({iso})
+                </h4>
+                <p style="margin: 5px 0; color: #7f8c8d;">
+                    <strong>Region:</strong> {region}
+                </p>
                 <button onclick="
                     if (window.parent && window.parent.Shiny) {{
                         window.parent.Shiny.setInputValue('map_click_iso', '{iso}', {{priority: 'event'}});
                     }} else if (window.Shiny) {{
                         window.Shiny.setInputValue('map_click_iso', '{iso}', {{priority: 'event'}});
                     }}
-                " style="padding: 5px 10px; margin: 5px 0; cursor: pointer;">
-                    {'Deselect' if iso in selected_countries else 'Select'}
+                " style="
+                    padding: 8px 16px; 
+                    margin: 10px 0 5px 0; 
+                    cursor: pointer;
+                    background-color: {'#e74c3c' if iso in selected_countries else '#3498db'};
+                    color: white;
+                    border: none;
+                    border-radius: 4px;
+                    font-weight: bold;
+                    width: 100%;
+                ">
+                    {'🗑️ Deselect' if iso in selected_countries else '✅ Select'}
                 </button>
             </div>
             """
             
             folium.CircleMarker(
                 location=[country['lat'], country['lng']],
-                radius=5,
+                radius=radius,
                 color=color,
                 fill=True,
                 fill_color=color,
-                fill_opacity=0.7,
-                popup=folium.Popup(popup_html, max_width=200),
-                tooltip=country_name
+                fill_opacity=fill_opacity,
+                popup=folium.Popup(popup_html, max_width=220),
+                tooltip=folium.Tooltip(
+                    f"<b>{country_name}</b><br>Region: {region}",
+                    sticky=True
+                )
             ).add_to(m)
     
     return m

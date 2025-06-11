@@ -36,11 +36,10 @@ def load_country_data(data_path: str = "./data/data.parquet") -> Dict:
         )
         
         # Handle missing regions
-        country_list['region'] = country_list['region'].fillna('Other')
+        country_list['region'] = country_list['region']
         country_list = country_list.sort_values('country').reset_index(drop=True)
         # Get chemical categories - Modified to remove empty values
         chemical_categories = (
-            ['All'] + 
             sorted(df['chemical']
                   .dropna()
                   .unique()
@@ -245,7 +244,7 @@ def create_main_plot(
                 y=group_data['total_percentage'],
                 mode='lines+markers',
                 name=group,
-                line=dict(color=color, width=2) if color else dict(width=2),
+                line=dict(color=color, width=1) if color else dict(width=1),
                 marker=dict(
                     color=color if color else None,
                     size=group_data['total_percentage'] / 5,  # Size based on value
