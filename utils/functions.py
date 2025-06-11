@@ -10,6 +10,7 @@ import plotly.express as px
 from typing import List, Dict, Optional, Tuple, Union
 import geopandas as gpd
 from pathlib import Path
+from functools import lru_cache
 
 def load_country_data(data_path: str = "./data/data.parquet") -> Dict:
     """
@@ -89,146 +90,118 @@ def get_display_data(
     country_list: pd.DataFrame = None
 ) -> pd.DataFrame:
     """
-    Fetch and process data based on user selections
+    Optimized data fetching with early filtering and lazy evaluation
     """
-    # Base filtering on year and chemical category
+    if df.empty:
+        return pd.DataFrame()
+    
+    # Early exit for collaboration mode without sufficient selection
+    if display_mode == "find_collaborations" and len(selected_isos) < 2:
+        return pd.DataFrame()
+    
+    # Apply filters progressively for efficiency
+    # Start with most selective filters first
     filtered_df = df[
         (df['year'] >= year_range[0]) & 
         (df['year'] <= year_range[1])
-    ].copy()
+    ]
     
-    # Apply chemical filter
-    # Assumes 'All' is a literal value in the 'chemical' column for aggregated data,
-    # or that if chemical_category is 'All' (from UI), we want data where df['chemical'] == 'All'.
-    # If 'All' in UI means "do not filter by chemical", this logic needs to change.
-    # Based on R code, it seems chemical_category is always filtered directly.
-    if chemical_category != "All": # If "All" means show all chemicals, then this filter is applied only if a specific chemical is chosen.
-        filtered_df = filtered_df[filtered_df['chemical'] == chemical_category]
-    # If 'All' is a category in your data that means "all chemicals combined", then:
-    # filtered_df = filtered_df[filtered_df['chemical'] == chemical_category]
-    # For this implementation, let's assume if chemical_category == "All" from UI, we filter for rows where df['chemical'] == "All"
-    # This was the previous logic:
-    # if chemical_category == "All":
-    #     filtered_df = filtered_df[filtered_df['chemical'] == "All"]
-    # else:
-    #     filtered_df = filtered_df[filtered_df['chemical'] == chemical_category]
-    # Let's stick to the more common interpretation: "All" means no specific chemical filter.
+    # Chemical filter
     if chemical_category != "All":
-         filtered_df = filtered_df[filtered_df['chemical'] == chemical_category]
+        filtered_df = filtered_df[filtered_df['chemical'] == chemical_category]
+    
+    # Early exit if no data after initial filtering
+    if filtered_df.empty:
+        return pd.DataFrame()
 
-
-    result = pd.DataFrame() # Initialize result
-
-    # Logic based on display mode
     if display_mode in ["individual", "compare_individuals"]:
-        if not selected_isos and display_mode == "compare_individuals" and country_list is not None:
-            # For choropleth/general view, if no specific ISOs selected, use all from country_list
-            # This case is handled by the caller for choropleth by passing all relevant ISOs.
-            # Here, if selected_isos is empty, we return empty.
-             if not selected_isos:
-                return pd.DataFrame()
+        if not selected_isos:
+            return pd.DataFrame()
 
-        # Individual country data
-        result_data_filtered = filtered_df[
+        # Filter for individual countries only
+        result = filtered_df[
             (filtered_df['is_collab'] == False) & 
             (filtered_df['iso2c'].isin(selected_isos))
         ].copy()
         
-        # Apply region filter (if 'region' column exists)
-        if region_filter != "All" and 'region' in result_data_filtered.columns:
-            result_data_filtered = result_data_filtered[result_data_filtered['region'] == region_filter]
+        # Apply region filter efficiently
+        if region_filter != "All" and 'region' in result.columns:
+            result = result[result['region'] == region_filter]
             
-        if result_data_filtered.empty:
+        if result.empty:
             return pd.DataFrame()
 
-        # Add plotting metadata
+        # Add metadata efficiently
         if country_list is not None:
-            # Ensure country_list has unique iso2c for merging if that's expected
-            # country_list_unique_iso = country_list.drop_duplicates(subset=['iso2c'])
-            result = result_data_filtered.merge(
-                country_list[['iso2c', 'country', 'cc', 'region']].drop_duplicates(subset=['iso2c']), # Use unique mapping
-                on='iso2c', 
-                how='left',
-                suffixes=('_original', '_meta') # Avoid column name clashes, then pick
-            )
-            # If 'country' or 'region' existed, they might now be 'country_original', 'region_original'
-            # We want the merged ones if available, or original if not.
-            if 'country_meta' in result.columns: result['country'] = result['country_meta']
-            if 'region_meta' in result.columns: result['region'] = result['region_meta']
-            if 'cc_meta' in result.columns: result['cc'] = result['cc_meta']
-
-        else:
-            result = result_data_filtered
+            country_meta = country_list[['iso2c', 'country', 'cc', 'region']].drop_duplicates(subset=['iso2c'])
+            result = result.merge(country_meta, on='iso2c', how='left', suffixes=('_orig', '_meta'))
             
-        result['plot_group'] = result['country'] if 'country' in result.columns else result['iso2c']
-        result['plot_color'] = result['cc'] if 'cc' in result.columns else '#808080' # Default color
+            # Use metadata preferentially
+            for col in ['country', 'cc', 'region']:
+                meta_col = f'{col}_meta'
+                if meta_col in result.columns:
+                    result[col] = result[meta_col].fillna(result.get(f'{col}_orig', ''))
+                    
+        result['plot_group'] = result.get('country', result['iso2c'])
+        result['plot_color'] = result.get('cc', '#808080')
         
     elif display_mode == "find_collaborations":
-        if not selected_isos: # Need at least one country to find its collaborations
-            return pd.DataFrame()
-
+        # Optimized collaboration filtering
         collab_df = filtered_df[filtered_df['is_collab'] == True].copy()
         
         if collab_df.empty:
             return pd.DataFrame()
 
-        # Filter for collaborations involving ALL selected countries
-        def check_all_partners_present(collab_iso_string, required_partners_set):
-            if pd.isna(collab_iso_string): return False
-            current_partners = set(str(collab_iso_string).split('-'))
-            return required_partners_set.issubset(current_partners)
-
-        selected_isos_set = set(selected_isos)
-        mask = collab_df['iso2c'].apply(lambda x: check_all_partners_present(x, selected_isos_set))
+        # Efficient collaboration filtering using vectorized operations
+        selected_set = set(selected_isos)
+        
+        def has_all_partners(iso_string):
+            if pd.isna(iso_string):
+                return False
+            partners = set(str(iso_string).split('-'))
+            return selected_set.issubset(partners)
+        
+        mask = collab_df['iso2c'].apply(has_all_partners)
         result = collab_df[mask].copy()
 
-        if not result.empty:
-            result['partners'] = result['iso2c'].apply(lambda x: str(x).split('-') if pd.notna(x) else [])
-            result['collab_size'] = result['partners'].apply(len)
+        if result.empty:
+            return pd.DataFrame()
             
-            def get_collab_type(size):
-                if size == 2: return "Bilateral"
-                if size == 3: return "Trilateral"
-                if size == 4: return "4-country"
-                if size >= 5: return "5-country+"
-                return "Unknown"
-            
-            result['collab_type'] = result['collab_size'].apply(get_collab_type)
-            
-            # 'country' column for collaborations is the ID string like "US-CN"
-            result['plot_group'] = result['country'] 
-            result['plot_color_group'] = result['collab_type']
-        else:
-            return pd.DataFrame() # No matching collaborations found
-            
-    else: # Should not happen with radio buttons
+        # Add collaboration metadata
+        result['partners'] = result['iso2c'].str.split('-')
+        result['collab_size'] = result['partners'].str.len()
+        
+        # Vectorized collaboration type assignment
+        result['collab_type'] = result['collab_size'].map({
+            2: "Bilateral",
+            3: "Trilateral", 
+            4: "4-country"
+        }).fillna("5-country+")
+        
+        result['plot_group'] = result['country']
+        result['plot_color_group'] = result['collab_type']
+    else:
         return pd.DataFrame()
         
-    # Ensure numeric types and consistent percentage column name
+    # Standardize columns efficiently
     if not result.empty:
-        if 'year' in result.columns:
-            result['year'] = pd.to_numeric(result['year'], errors='coerce')
+        # Handle numeric conversions
+        for col in ['year']:
+            if col in result.columns:
+                result[col] = pd.to_numeric(result[col], errors='coerce')
         
-        # Standardize percentage column to 'total_percentage'
-        # Check for common names and rename
-        found_percentage_col = False
-        for col_name in ['percentage', 'value', 'value_raw', 'percentage_x']: # Add other possibilities if any
-            if col_name in result.columns:
-                result['total_percentage'] = pd.to_numeric(result[col_name], errors='coerce')
-                if col_name != 'total_percentage': # Avoid renaming if already correct
-                    result = result.drop(columns=[col_name])
-                found_percentage_col = True
+        # Standardize percentage column
+        percentage_cols = ['percentage', 'value', 'value_raw', 'percentage_x']
+        for col in percentage_cols:
+            if col in result.columns:
+                result['total_percentage'] = pd.to_numeric(result[col], errors='coerce')
                 break
         
-        if not found_percentage_col and 'total_percentage' not in result.columns:
-            # If no known percentage column is found, this data might be unusable for plots
-            # Consider returning empty or adding a placeholder with NaNs
-            print(f"Warning: No recognizable percentage column found in data for display_mode='{display_mode}'. Columns: {result.columns.tolist()}")
-            # result['total_percentage'] = np.nan # Or handle error appropriately
-
-        result = result.dropna(subset=['year', 'total_percentage']) # Drop rows where essential numerics are NaN
+        # Drop rows with invalid data
+        result = result.dropna(subset=['year', 'total_percentage'])
 
     return result
+
 
 def create_main_plot(
     data: pd.DataFrame, 
@@ -340,70 +313,93 @@ def create_contribution_map_plot(
     main_title: str = "Average Contribution Over Selected Period"
 ) -> go.Figure:
     """
-    Create choropleth map showing average contribution percentages
-    
-    Args:
-        processed_data_df: Processed data with country contributions
-        fill_label: Legend title for fill variable
-        main_title: Main plot title
-        
-    Returns:
-        Plotly Figure object
+    Optimized choropleth map creation
     """
     if processed_data_df.empty or 'total_percentage' not in processed_data_df.columns:
-        fig = go.Figure()
-        fig.add_annotation(
-            text="No data for map",
-            xref="paper", yref="paper", 
-            x=0.5, y=0.5, xanchor='center', yanchor='middle',
-            showarrow=False, font=dict(size=16)
-        )
-        return fig
+        return create_empty_plot("No data for map")
         
-    # Calculate average percentage per country
+    # Efficient aggregation
     map_data = (
-        processed_data_df.groupby(['iso2c', 'country', 'region'])
+        processed_data_df.groupby(['iso2c', 'country'], as_index=False)
         .agg({
             'total_percentage': ['mean', 'max', 'min'],
-            'year': ['min', 'max']
+            'year': ['min', 'max'],
+            'region': 'first'
         })
         .round(2)
-        .reset_index()
     )
     
     # Flatten column names
     map_data.columns = [
-        'iso2c', 'country', 'region', 
+        'iso2c', 'country', 
         'avg_percentage', 'max_percentage', 'min_percentage',
-        'first_year', 'last_year'
+        'first_year', 'last_year', 'region'
     ]
     
-    # Create choropleth
+    # Create choropleth with better color scale
     fig = go.Figure(data=go.Choropleth(
         locations=map_data['iso2c'],
         z=map_data['avg_percentage'],
         locationmode='ISO-3166-1-alpha-2',
         colorscale='Viridis',
+        reversescale=False,
         hovertemplate=(
             "<b>%{customdata[0]}</b> (%{location})<br>" +
             "Avg Contribution: %{z:.2f}%<br>" +
             "Region: %{customdata[1]}<br>" +
-            "Max: %{customdata[2]:.2f}%<br>" +
-            "Years: %{customdata[3]:.0f}-%{customdata[4]:.0f}<extra></extra>"
+            "Range: %{customdata[2]:.2f}% - %{customdata[3]:.2f}%<br>" +
+            "Years: %{customdata[4]:.0f}-%{customdata[5]:.0f}<extra></extra>"
         ),
-        customdata=map_data[['country', 'region', 'max_percentage', 'first_year', 'last_year']].values,
-        colorbar=dict(title=fill_label)
+        customdata=map_data[['country', 'region', 'min_percentage', 'max_percentage', 'first_year', 'last_year']].values,
+        colorbar=dict(
+            title=fill_label,
+            titleside="right",
+            tickmode="linear",
+            tick0=0,
+            dtick=1
+        )
     ))
     
     fig.update_layout(
-        title=main_title,
+        title={
+            'text': main_title,
+            'x': 0.5,
+            'xanchor': 'center'
+        },
         geo=dict(
             showframe=False,
             showcoastlines=True,
-            projection_type='natural earth'
-        )
+            coastlinecolor="lightgray",
+            projection_type='natural earth',
+            bgcolor='rgba(0,0,0,0)'
+        ),
+        template='plotly_white',
+        height=500
     )
     
+    return fig
+
+def create_empty_plot(message: str) -> go.Figure:
+    """Create empty plot with better styling"""
+    fig = go.Figure()
+    fig.add_annotation(
+        text=message,
+        xref="paper", yref="paper",
+        x=0.5, y=0.5, 
+        xanchor='center', yanchor='middle',
+        showarrow=False, 
+        font=dict(size=16, color="gray"),
+        bgcolor="rgba(255,255,255,0.8)",
+        bordercolor="lightgray",
+        borderwidth=1
+    )
+    fig.update_layout(
+        xaxis=dict(visible=False),
+        yaxis=dict(visible=False),
+        template='plotly_white',
+        height=400,
+        margin=dict(l=20, r=20, t=40, b=20)
+    )
     return fig
 
 def create_summary_table(data: pd.DataFrame, display_mode: str) -> pd.DataFrame:
