@@ -67,8 +67,16 @@ def create_app():
         # Only read metadata for UI, not full dataset
         df_sample = pd.read_parquet("./data/data.parquet", columns=['chemical', 'year', 'region'])
         
-        chemical_categories = sorted(df_sample['chemical'].dropna().unique())
-        regions = ['All'] + sorted(df_sample['region'].fillna('Other').unique())
+        unique_chemicals = df_sample['chemical'].dropna().unique().tolist()
+        # Ensure 'All' is the first option and filter out empty strings
+        chemical_categories = ['All'] + sorted([chem for chem in unique_chemicals if chem and str(chem).strip()])
+        # Remove duplicates if 'All' was already in unique_chemicals
+        chemical_categories = list(dict.fromkeys(chemical_categories))
+
+        unique_regions = df_sample['region'].fillna('Other').unique().tolist()
+        # Ensure 'All' is the first option and remove potential duplicates
+        regions = ['All'] + sorted(list(set(region for region in unique_regions if region and str(region).strip() and region != 'All')))
+        
         min_year = int(df_sample['year'].min())
         max_year = int(df_sample['year'].max())
         
@@ -91,7 +99,59 @@ def create_app():
     # UI Definition with improved layout
     app_ui = ui.page_navbar(
         ui.nav_panel(
-            "🔬 Explore Chemical Space",
+            "📄 Article Highlights",
+            ui.p("Welcome to the Chemical Space Explorer. These plots highlight key findings from our research."),
+            ui.navset_card_tab(
+                ui.nav_panel(
+                    "🏆 Main Countries",
+                    ui.p("Placeholder text: This plot illustrates the trends in country participation in the Chemical Space over the years."),
+                    output_widget("country_cs_plot")
+                ),
+                ui.nav_panel(
+                    "🤝 Top Collaborations",
+                     ui.p("Placeholder text: This plot shows the top collaborations or individual country contributions based on the selected chemical category."),
+                    ui.row(
+                        ui.column(6,
+                            ui.input_select(
+                                "top_collabs_chem_filter",
+                                "Chemical Category:",
+                                choices=initial_data['chemical_categories'],
+                                selected="All"
+                            )
+                        ),
+                        ui.column(6,
+                            ui.input_radio_buttons(
+                                "top_data_type_filter",
+                                "Show Top:",
+                                choices={
+                                    "collabs": "Collaborations",
+                                    "individuals": "Countries"
+                                },
+                                selected="collabs"
+                            )
+                        )
+                    ),
+                    output_widget("article_top_collabs_plot")
+                ),
+                ui.nav_panel(
+                    "� GDP",
+                    ui.p("Placeholder text: This plot visualizes the annual growth rate of GDP for key countries, with markers for significant economic events."),
+                    output_widget("article_gdp_plot")
+                ),
+                ui.nav_panel(
+                    "👥 Researchers",
+                    ui.p("Placeholder text: This plot displays the number of researchers over time for selected countries."),
+                    output_widget("article_researchers_plot")
+                ),
+                ui.nav_panel(
+                    "📊 CS Expansion",
+                    ui.p("Placeholder text: This plot shows the expansion rate of the Chemical Space attributed to different countries."),
+                    output_widget("article_cs_expansion_plot")
+                )
+            )
+        ),
+        ui.nav_panel(
+            "�🔬 Explore Chemical Space",
             ui.layout_sidebar(
                 ui.sidebar(
                     ui.h4("⚙️ Filters & Options"),
@@ -142,14 +202,14 @@ def create_app():
                     ui.card_header("🗺️ Interactive Chemical Space Map"),
                     ui.output_ui("map_output"),
                 ),
+                ui.card(
+                    ui.card_header("🌍 Global Contribution Map"), # Relocated contribution_map
+                    output_widget("contribution_map")
+                ),
                 ui.navset_card_tab(
                     ui.nav_panel(
                         "📈 Trends",
                         output_widget("main_plot")
-                    ),
-                    ui.nav_panel(
-                        "🌍 Global Map", 
-                        output_widget("contribution_map")
                     ),
                     ui.nav_panel(
                         "📋 Data Table",
@@ -159,45 +219,36 @@ def create_app():
             )
         ),
         ui.nav_panel(
-            "📄 Article Highlights",
-            ui.navset_card_tab(
-                ui.nav_panel(
-                    "🏆 Main Countries",
-                    output_widget("country_cs_plot")
+            "� Original Article",
+            ui.tags.iframe(
+                src="original_article.pdf", # Make sure this file is in /www/original_article.pdf
+                style="width: 100%; height: 80vh; border: none;"
+            )
+        ),
+        ui.nav_panel(
+            "🔗 Useful Links",
+            ui.div(
+                ui.h4("Project & Resources"),
+                ui.tags.ul(
+                    ui.tags.li(ui.tags.a("GitHub Repository", href="YOUR_GITHUB_REPO_LINK_HERE", target="_blank")),
+                    ui.tags.li(ui.tags.a("Your Personal Webpage", href="YOUR_PERSONAL_WEBPAGE_LINK_HERE", target="_blank")),
+                    ui.tags.li(ui.tags.a("Lab/Institution Page", href="YOUR_LAB_LINK_HERE", target="_blank")),
+                    # Add more links as needed
                 ),
-                ui.nav_panel(
-                    "🤝 Top Collaborations",
-                    ui.row(
-                        ui.column(6,
-                            ui.input_select(
-                                "top_collabs_chem_filter",
-                                "Chemical Category:",
-                                choices=initial_data['chemical_categories'],
-                                selected="All"
-                            )
-                        ),
-                        ui.column(6,
-                            ui.input_radio_buttons(
-                                "top_data_type_filter",
-                                "Show Top:",
-                                choices={
-                                    "collabs": "Collaborations",
-                                    "individuals": "Countries"
-                                },
-                                selected="collabs"
-                            )
-                        )
-                    ),
-                    output_widget("article_top_collabs_plot")
-                ),
-                ui.nav_panel("💰 GDP", output_widget("article_gdp_plot")),
-                ui.nav_panel("👥 Researchers", output_widget("article_researchers_plot")),
-                ui.nav_panel("📊 CS Expansion", output_widget("article_cs_expansion_plot"))
+                ui.h4("Contact"),
+                ui.p("For questions or collaborations, please reach out to [Your Name/Email]."),
+                style="padding: 20px;"
             )
         ),
         title="Chemical Space Explorer 🧬",
-        id="navbar"
+        id="navbar",
+        footer=ui.div(
+            ui.hr(),
+            ui.p("Placeholder footer: © 2025 Chemical Space Explorer. All rights reserved. For inquiries, please contact [Your Name/Lab]."),
+            style="text-align: center; padding: 10px; font-size: 0.9em; color: #777;"
+        )
     )
+
 
     def server(input, output, session):
         # Reactive values
@@ -332,11 +383,11 @@ def create_app():
                 
                 if not isos_for_choropleth:
                      return create_empty_plot(f"No countries found for region: {current_region_filter}")
-
-                # Filter data for choropleth
+        
+                # Filter data for choropleth - use all available data, not just selected countries
                 choropleth_data = get_display_data(
                     df=df,
-                    selected_isos=isos_for_choropleth, 
+                    selected_isos=isos_for_choropleth,  # Use all countries in region
                     year_range=input.years(),
                     chemical_category=input.chemical_category(),
                     display_mode="compare_individuals",
@@ -346,10 +397,16 @@ def create_app():
                 
                 if choropleth_data.empty:
                     return create_empty_plot("No data for global map with current selections")
+                
+                # Debug info - you can remove this later
+                # print(f"Choropleth data shape: {choropleth_data.shape}")
+                # print(f"Countries with data: {choropleth_data['iso2c'].nunique()}")
+                # print(f"Value range: {choropleth_data['total_percentage'].min():.2f} - {choropleth_data['total_percentage'].max():.2f}")
                     
                 return create_contribution_choropleth(choropleth_data)
                 
             except Exception as e:
+                print(f"Error in contribution_map: {str(e)}")
                 return create_empty_plot(f"Error creating map: {str(e)}")
             
         @output
@@ -807,47 +864,95 @@ def create_trends_plot(data: pd.DataFrame, selected_countries: List[str], mode: 
         hovermode='closest',
         template='plotly_white'
     )
+
+
     
     return fig
 
 def create_contribution_choropleth(data: pd.DataFrame):
-    """Create world choropleth map"""
-    value_column = 'total_percentage' # Expect this from get_display_data
+    """Create world choropleth map with proper color scaling"""
+    value_column = 'total_percentage'
 
     if value_column not in data.columns or data.empty:
-        fig = go.Figure()
-        fig.add_annotation(
-            text=f"Error: Missing '{value_column}' column or no data for choropleth.",
-            xref="paper", yref="paper",
-            x=0.5, y=0.5, showarrow=False
-        )
-        fig.update_layout(xaxis=dict(visible=False), yaxis=dict(visible=False), template='plotly_white')
-        return fig
+        return create_empty_plot("No data available for choropleth")
     
-    required_cols = ['iso2c', 'country', value_column]
-    if not all(col in data.columns for col in required_cols):
-        missing = [col for col in required_cols if col not in data.columns]
-        return create_empty_plot(f"Choropleth data missing: {missing}")
-
-    avg_data = data.groupby(['iso2c', 'country'], as_index=False)[value_column].mean()
-    
-    if avg_data.empty:
-        return create_empty_plot("No average data to display on choropleth.")
-
-    fig = px.choropleth(
-        avg_data,
-        locations='iso2c',
-        color=value_column,
-        hover_name='country',
-        color_continuous_scale='Viridis', # Or any other preferred scale like 'YlGnBu'
-        title='Average Chemical Space Contribution',
-        labels={value_column: 'Avg. Contribution (%)'}
+    # Calculate average percentage per country
+    avg_data = (
+        data.groupby(['iso3c', 'country'], as_index=False)
+        .agg({
+            'total_percentage': 'mean',
+            'region': 'first'
+        })
+        .round(2)
     )
     
+    if avg_data.empty:
+        return create_empty_plot("No aggregated data for choropleth")
+
+    # Ensure we have valid data for plotting
+    avg_data = avg_data.dropna(subset=['total_percentage'])
+    
+    if avg_data.empty:
+        return create_empty_plot("No valid data after removing NaN values")
+
+    # Create choropleth with explicit color range
+    min_val = avg_data['total_percentage'].min()
+    max_val = avg_data['total_percentage'].max()
+    
+    # Handle case where all values are the same
+    if min_val == max_val:
+        color_range = [max(0, min_val - 0.1), min_val + 0.1]
+    else:
+        color_range = [min_val, max_val]
+
+    fig = go.Figure(data=go.Choropleth(
+        locations=avg_data['iso3c'],
+        z=avg_data['total_percentage'],
+        locationmode='ISO-3',
+        # colorscale='Viridis',
+        colorscale=[[0, 'rgb(10, 49, 97)'], [1, 'rgb(238, 28, 37)']],
+        reversescale=False,
+        zmid=None,  # Let plotly handle the midpoint
+        zmin=color_range[0],
+        zmax=color_range[1],
+        # legendwidth = 20,
+        hovertemplate=(
+            "<b>%{customdata[0]}</b> (%{location})<br>" +
+            "Avg Contribution: %{z:.2f}%<br>" +
+            "Region: %{customdata[1]}<extra></extra>"
+        ),
+        customdata=avg_data[['country', 'region']].values,
+        colorbar=dict(
+            # title="Avg. Contribution (%)",
+            orientation = "h",
+            tickangle =0,
+            tickformat = ".2f",
+            ticklabelstep = 2,
+            ticksuffix = "%",
+            # titleside="right",
+            tickmode="linear",
+            # xanchor ='right',
+            # yanchor ='bottom',
+            tick0=color_range[0],
+            dtick=max(0.5, (color_range[1] - color_range[0]) / 10)
+        ),
+        showscale=True
+    ))
+    
     fig.update_layout(
-        geo=dict(showframe=False, showcoastlines=True, projection_type='natural earth'),
-        title_x=0.5,
-        template='plotly_white'
+        geo=dict(
+            showframe=False,
+            showcoastlines=True,
+            coastlinecolor="lightgray",
+            projection_type='robinson',
+            bgcolor='rgba(0,0,0,0)',
+            showlakes=True,
+            lakecolor='rgba(127,205,255,0.1)'
+        ),
+        template='plotly_white',
+        height=500,
+        margin=dict(l=20, r=20, t=60, b=20),
+        modebar_remove=['zoom', 'pan', 'lasso', 'select']
     )
     
     return fig
