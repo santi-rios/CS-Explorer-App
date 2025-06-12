@@ -99,121 +99,111 @@ def create_app():
                     ui.div(
                         # --- Section 1: Article Highlights ---
                         ui.h3("Key Article Insights", style="text-align: center; margin-bottom: 20px; margin-top: 20px;"),
+                        
+                        # First set of plots (Main Countries, GDP, Researchers) in a tabset
                         ui.row(
                             ui.column(12, 
-                                ui.navset_card_tab(
-                                    ui.nav_panel(
-                                        "🏆 Main Countries",
-                                        ui.card(
-                                            output_widget("country_cs_plot")
-                                        )
-                                    ),
-                                    ui.nav_panel(
-                                        "💰 GDP",
-                                        ui.card(
-                                            output_widget("article_gdp_plot")
-                                        )
-                                    ),
-                                    ui.nav_panel(
-                                        "👥 Researchers",
-                                        ui.card(
-                                            output_widget("article_researchers_plot")
-                                        )
-                                    ),
-                                    # You can add the CS Expansion plot here as another tab if desired
-                                    # ui.nav_panel(
-                                    #     "📊 CS Expansion",
-                                    #     ui.card(
-                                    #         output_widget("article_cs_expansion_plot")
-                                    #     )
-                                    # )
-                                )
+                                      # Add a subtle border and padding to this group
+                                      ui.div(
+                                          ui.navset_card_tab(
+                                              ui.nav_panel(
+                                                  "🏆 Main Countries",
+                                                  ui.card(
+                                                      output_widget("country_cs_plot")
+                                                  )
+                                              ),
+                                              ui.nav_panel(
+                                                  "💰 GDP",
+                                                  ui.card(
+                                                      output_widget("article_gdp_plot")
+                                                  )
+                                              ),
+                                              ui.nav_panel(
+                                                  "👥 Researchers",
+                                                  ui.card(
+                                                      output_widget("article_researchers_plot")
+                                                  )
+                                              ),
+                                          ),
+                                          style="border: 1px solid #dee2e6; border-radius: .25rem; padding: 15px; background-color: #f8f9fa;"
+                                      )
                             )
                         ),
+                        
+                        # Top Collaborations plot - distinct card
                         ui.row(
-                            ui.column(12, ui.card(
-                                ui.card_header("🤝 Top Collaborations"),
-                                ui.row( # Filters for this specific plot
-                                    ui.column(6, ui.input_select("top_collabs_chem_filter", "Chemical Category:", choices=initial_data['chemical_categories'], selected="All")),
-                                    ui.column(6, ui.input_radio_buttons("top_data_type_filter", "Show Top:", choices={"collabs": "Collaborations", "individuals": "Countries"}, selected="collabs"))
-                                ),
-                                output_widget("article_top_collabs_plot")
-                            ))
+                            ui.column(12, 
+                                      # Using panel_well for a slightly inset and different background
+                                      ui.panel_well(
+                                          ui.h4("🤝 Top Collaborations", style="margin-top: 0; text-align: center;"), # Centered H4 instead of card_header
+                                          ui.row( # Filters for this specific plot
+                                              ui.column(6, ui.input_select("top_collabs_chem_filter", "Chemical Category:", choices=initial_data['chemical_categories'], selected="All")),
+                                              ui.column(6, ui.input_radio_buttons("top_data_type_filter", "Show Top:", choices={"collabs": "Collaborations", "individuals": "Countries"}, selected="collabs"))
+                                          ),
+                                          output_widget("article_top_collabs_plot"),
+                                          style="margin-top: 20px; margin-bottom: 20px;" # Add some vertical margin
+                                      )
+                            )
                         ),
-                        # The CS Expansion plot was here. If you want to keep it, 
-                        # you could add it as another tab above or in a new row.
-                        # For example, to add it as a new row:
-                        # ui.row(
-                        #     ui.column(12, ui.card(
-                        #         ui.card_header("� CS Expansion"),
-                        #         output_widget("article_cs_expansion_plot")
-                        #     ))
-                        # ),
-        
-                        ui.hr(style="margin-top: 30px; margin-bottom: 30px; border-top: 2px solid #007bff;"),
+                        
+                        # Separator
+                        ui.hr(style="margin-top: 40px; margin-bottom: 40px; border-top: 3px dashed #007bff; opacity: 0.5;"),
 
-                ui.hr(style="margin-top: 30px; margin-bottom: 30px; border-top: 2px solid #007bff;"),
-
-                # --- Section 2: Explore Chemical Space ---
-                ui.h3("Explore Chemical Space Interactively", style="text-align: center; margin-bottom: 20px;"),
-                
-                # Card for the Interactive Map, with its own internal sidebar
-                ui.card(
-                    ui.card_header("🗺️ Interactive Chemical Space Map"),
-                    ui.layout_sidebar(
-                        ui.sidebar(
-                            ui.h5("⚙️ Filters & Options"),
-                            ui.input_select(
-                                "region_filter", "🌍 Filter by Region:",
-                                choices=initial_data['regions'], selected="All"
-                            ),
-                            ui.input_slider(
-                                "years", "📅 Year Range:",
-                                min=initial_data['min_year'], max=initial_data['max_year'],
-                                value=[initial_data['min_year'], initial_data['max_year']],
-                                step=1, sep=""
-                            ),
-                            ui.input_select(
-                                "chemical_category", "🧪 Chemical Space:",
-                                choices=initial_data['chemical_categories'], selected="All"
-                            ),
-                            ui.input_radio_buttons(
-                                "display_mode_input", "📊 Display Mode:",
-                                choices={
-                                    "compare_individuals": "Compare Countries",
-                                    "find_collaborations": "Find Collaborations"
-                                },
-                                selected="compare_individuals"
-                            ),
-                            ui.div(
-                                ui.input_action_button(
-                                    "clear_selection", "🗑️ Clear Selection",
-                                    class_="btn-outline-danger w-100"
+                        # --- Section 2: Explore Chemical Space ---
+                        ui.h3("Explore Chemical Space Interactively", style="text-align: center; margin-bottom: 20px;"),
+                        
+                        # Card for the Interactive Map, with its own internal sidebar
+                        ui.card(
+                            ui.card_header("🗺️ Interactive Chemical Space Map"),
+                            ui.layout_sidebar(
+                                ui.sidebar(
+                                    ui.h5("⚙️ Filters & Options"),
+                                    ui.input_select(
+                                        "region_filter", "🌍 Filter by Region:",
+                                        choices=initial_data['regions'], selected="All"
+                                    ),
+                                    ui.input_slider(
+                                        "years", "📅 Year Range:",
+                                        min=initial_data['min_year'], max=initial_data['max_year'],
+                                        value=[initial_data['min_year'], initial_data['max_year']],
+                                        step=1, sep=""
+                                    ),
+                                    ui.input_select(
+                                        "chemical_category", "🧪 Chemical Space:",
+                                        choices=initial_data['chemical_categories'], selected="All"
+                                    ),
+                                    ui.input_radio_buttons(
+                                        "display_mode_input", "📊 Display Mode:",
+                                        choices={
+                                            "compare_individuals": "Compare Countries",
+                                            "find_collaborations": "Find Collaborations"
+                                        },
+                                        selected="compare_individuals"
+                                    ),
+                                    ui.div(
+                                        ui.input_action_button(
+                                            "clear_selection", "🗑️ Clear Selection",
+                                            class_="btn-outline-danger w-100"
+                                        ),
+                                        ui.div(ui.output_text("selection_info"), class_="mt-2 text-muted small")
+                                    ),
+                                    open = "closed", # Consider if this should be open by default
+                                    width=300 
                                 ),
-                                ui.div(ui.output_text("selection_info"), class_="mt-2 text-muted small")
+                                # Main content for the map within its layout_sidebar
+                                ui.output_ui("map_output")
                             ),
-                            width=220 # Adjust sidebar width as needed, e.g., 250, 300, 350
+                            # Add a class for potential further specific styling
+                            class_="mb-3" # Bootstrap margin-bottom class
                         ),
-                        # Main content for the map within its layout_sidebar
-                        ui.output_ui("map_output")
+                        
+                        # Trends and Data Table, now outside the map's sidebar layout
+                        ui.navset_card_tab( 
+                            ui.nav_panel("📈 Trends", output_widget("main_plot")),
+                            ui.nav_panel("📋 Data Table", ui.output_data_frame("summary_table"))
+                        ),
                     )
                 ),
-                
-                # Trends and Data Table, now outside the map's sidebar layout
-                ui.navset_card_tab( 
-                    ui.nav_panel("📈 Trends", output_widget("main_plot")),
-                    ui.nav_panel("📋 Data Table", ui.output_data_frame("summary_table"))
-                ),
-                
-                # Global Contribution Map (if it's not the floating panel from the previous step)
-                # If it's floating, this card should be removed.
-                # If it's meant to be here, it will now be a separate card.
-                # ui.card(
-                #     ui.card_header("📊 Global Contribution Map"),
-                #     output_widget("contribution_map") 
-                # )
-            )
-        ),
         # --- Other nav panels remain for auxiliary content ---
         ui.nav_panel(
             "📖 Original Article",
