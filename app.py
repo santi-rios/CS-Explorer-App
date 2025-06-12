@@ -68,7 +68,7 @@ def create_app():
         df_sample = pd.read_parquet("./data/data.parquet", columns=['chemical', 'year', 'region'])
         
         unique_chemicals = df_sample['chemical'].dropna().unique().tolist()
-        chemical_categories = ['All'] + sorted([chem for chem in unique_chemicals if chem and str(chem).strip()])
+        chemical_categories = sorted([chem for chem in unique_chemicals if chem and str(chem).strip()])
         chemical_categories = list(dict.fromkeys(chemical_categories))
 
         unique_regions = df_sample['region'].fillna('Other').unique().tolist()
@@ -280,7 +280,10 @@ def create_app():
             ui.hr(),
             ui.p(
                 "Source: Bermúdez-Montaña, M., et al. (2025). China's rise in the chemical space and the decline of US influence. ",
-                ui.tags.i("Placeholder citation details."), # Example of adding more details
+                ui.tags.i("ChemRxiv link: "),
+                ui.tags.a("https://chemrxiv.org/engage/chemrxiv/article-details/67920ada6dde43c908f688f6", 
+                          href="https://chemrxiv.org/engage/chemrxiv/article-details/67920ada6dde43c908f688f6", 
+                          target="_blank"),
                 style="text-align: center; padding: 10px; font-size: 0.9em; color: #777;"
             )
         )
@@ -296,19 +299,36 @@ def create_app():
         def country_list():
             return load_country_list()
         
+
         # Optimized reactive for main data
         @reactive.Calc
         def filtered_data():
             # Only load full data when needed and cache results
             selected_tuple = tuple(sorted(selected_countries.get())) if selected_countries.get() else ()
+            current_mode = input.display_mode_input()
             
-            return cached_get_display_data(
-                selected_isos_tuple=selected_tuple,
-                year_range=tuple(input.years()),
-                chemical_category=input.chemical_category(),
-                display_mode=input.display_mode_input(),
-                region_filter=input.region_filter()
-            )
+            # For collaboration mode, we need to handle selected countries differently
+            # In collaboration mode, we want to find collaborations involving the selected countries
+            # In individual mode, we want to filter to show only the selected countries
+            if current_mode == "find_collaborations":
+                # For collaborations, pass selected countries to find collaborations between them
+                # The get_display_data function should handle this logic
+                return cached_get_display_data(
+                    selected_isos_tuple=selected_tuple,
+                    year_range=tuple(input.years()),
+                    chemical_category=input.chemical_category(),
+                    display_mode=current_mode,
+                    region_filter=input.region_filter()
+                )
+            else:
+                # For individual countries, pass selected countries normally
+                return cached_get_display_data(
+                    selected_isos_tuple=selected_tuple,
+                    year_range=tuple(input.years()),
+                    chemical_category=input.chemical_category(),
+                    display_mode=current_mode,
+                    region_filter=input.region_filter()
+                )
 
         @reactive.Effect
         @reactive.event(input.map_click_iso)
@@ -843,41 +863,38 @@ def create_trends_plot(data: pd.DataFrame, selected_countries: List[str], mode: 
         )
         return fig
     
-    # Initial sort of the entire dataset. This helps, but aggregation per group is key.
-    data = data.sort_values(['plot_group', 'year'])
+    # Sort the entire dataset by plot_group and then by year.
+    # This ensures that when we iterate through unique plot_groups,
+    # the data for each group is already sorted by year.
+    data_sorted = data.sort_values(['plot_group', 'year'])
 
     plot_title = "Chemical Space Contribution Trends"
     show_legend_for_plot = True # Default to showing legend
 
     if mode == "compare_individuals":
         plot_title = "Individual Country Contribution Trends"
-        for country_name_str in data['plot_group'].unique(): 
+        for country_name_str in data_sorted['plot_group'].unique(): 
             country_name = str(country_name_str) # Ensure string for name
-            country_data_full = data[data['plot_group'] == country_name]
+            # country_data_for_trace will be sorted by year due to the initial sort of data_sorted
+            country_data_for_trace = data_sorted[data_sorted['plot_group'] == country_name]
 
-            if country_data_full.empty:
-                continue
-
-            # Aggregate data to ensure one entry per year for this country.
-            # This fixes issues with multiple points per year or lines going back and forth.
-            # Assumes 'plot_color' is consistent for the group if it exists.
-            agg_operations = {value_column: 'mean'} # Use mean for the value
-            if 'plot_color' in country_data_full.columns:
-                agg_operations['plot_color'] = 'first' # Take the first color
-            
-            country_data_agg = country_data_full.groupby('year', as_index=False).agg(agg_operations).sort_values('year')
-
-            if country_data_agg.empty:
+            if country_data_for_trace.empty:
                 continue
             
-            color = country_data_agg['plot_color'].iloc[0] if 'plot_color' in country_data_agg.columns else None
+            # Assuming plot_color is consistent for the entire group (country)
+            color = None
+            if 'plot_color' in country_data_for_trace.columns and not country_data_for_trace.empty:
+                # Take the first available color for this country
+                first_valid_color = country_data_for_trace['plot_color'].dropna()
+                if not first_valid_color.empty:
+                    color = first_valid_color.iloc[0]
             
             fig.add_trace(go.Scatter(
-                x=country_data_agg['year'],
-                y=country_data_agg[value_column],
+                x=country_data_for_trace['year'],
+                y=country_data_for_trace[value_column],
                 mode='lines+markers',
                 name=country_name,
-                line=dict(color=color if color else None),
+                line=dict(color=color if color else None), # Plotly will assign a color if None
                 hovertemplate=(
                     f"<b>{country_name}</b><br>" +
                     "Year: %{x}<br>" +
@@ -896,33 +913,28 @@ def create_trends_plot(data: pd.DataFrame, selected_countries: List[str], mode: 
             "Unknown": "rgba(127, 127, 127, 0.9)"
         }
 
-        for collab_id_str in data['plot_group'].unique(): 
+        for collab_id_str in data_sorted['plot_group'].unique(): 
             collab_id = str(collab_id_str) # Ensure string for name
-            collab_data_full = data[data['plot_group'] == collab_id]
+            # collab_data_for_trace will be sorted by year
+            collab_data_for_trace = data_sorted[data_sorted['plot_group'] == collab_id]
 
-            if collab_data_full.empty:
+            if collab_data_for_trace.empty:
                 continue
-
-            # Aggregate data to ensure one entry per year for this collaboration.
-            # Assumes 'plot_color_group' is consistent for the group if it exists.
-            agg_operations_collab = {value_column: 'mean'} # Use mean for the value
-            if 'plot_color_group' in collab_data_full.columns:
-                agg_operations_collab['plot_color_group'] = 'first' # Take the first color group
-
-            collab_data_agg = collab_data_full.groupby('year', as_index=False).agg(agg_operations_collab).sort_values('year')
             
-            if collab_data_agg.empty:
-                continue
+            # Assuming plot_color_group is consistent for the entire group (collaboration)
+            collab_type = "Unknown"
+            if 'plot_color_group' in collab_data_for_trace.columns and not collab_data_for_trace.empty:
+                first_valid_type = collab_data_for_trace['plot_color_group'].dropna()
+                if not first_valid_type.empty:
+                    collab_type = str(first_valid_type.iloc[0])
 
-            collab_type = collab_data_agg['plot_color_group'].iloc[0] if 'plot_color_group' in collab_data_agg.columns else "Unknown"
-            
             fig.add_trace(go.Scatter(
-                x=collab_data_agg['year'],
-                y=collab_data_agg[value_column],
+                x=collab_data_for_trace['year'],
+                y=collab_data_for_trace[value_column],
                 mode='lines+markers',
                 name=collab_id, # Name is kept for hover data, even if legend is hidden
-                showlegend=False, # Also explicitly hide trace from legend if layout legend is true
-                line=dict(color=collab_type_colors.get(str(collab_type), collab_type_colors["Unknown"])),
+                showlegend=False, 
+                line=dict(color=collab_type_colors.get(collab_type, collab_type_colors["Unknown"])),
                 hovertemplate=(
                     f"<b>Collaboration: {collab_id}</b> ({collab_type})<br>" +
                     "Year: %{x}<br>" +
@@ -937,7 +949,7 @@ def create_trends_plot(data: pd.DataFrame, selected_countries: List[str], mode: 
         yaxis=dict(
             ticksuffix='%',
         ),
-        hovermode='closest',
+        hovermode='closest', # Changed from 'x unified' to 'closest' for better individual point hovering
         template='plotly_white',
         modebar_remove=['zoom', 'pan', 'lasso', 'select', 'zoomIn', 'zoomOut', 'autoScale', 'resetScale'],
         showlegend=show_legend_for_plot # Control overall legend visibility

@@ -106,8 +106,7 @@ def get_display_data(
     ]
     
     # Chemical filter
-    if chemical_category != "All":
-        filtered_df = filtered_df[filtered_df['chemical'] == chemical_category]
+    filtered_df = filtered_df[filtered_df['chemical'] == chemical_category]
     
     # Early exit if no data after initial filtering
     if filtered_df.empty:
