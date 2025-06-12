@@ -188,6 +188,10 @@ def create_app():
 
                         # --- Section 2: Explore Chemical Space ---
                         ui.h3("Explore Chemical Space Interactively", style="text-align: center; margin-bottom: 20px;"),
+                        ui.p(
+                            "Dive into the interactive map to visualize the chemical space contributions of different countries. Use the filters (click on the arrow > to the top-left of the map) to limit the year range, regions, CS or clear your current selection.",
+                            style="text-align: center; margin-bottom: 30px; font-size: 1.1em; color: #555;"
+                        ),
                         
                         # Card for the Interactive Map, with its own internal sidebar
                         ui.card(
@@ -209,14 +213,6 @@ def create_app():
                                         "chemical_category", "🧪 Chemical Space:",
                                         choices=initial_data['chemical_categories'], selected="All"
                                     ),
-                                    ui.input_radio_buttons(
-                                        "display_mode_input", "📊 Display Mode:",
-                                        choices={
-                                            "compare_individuals": "Compare Countries",
-                                            "find_collaborations": "Find Collaborations"
-                                        },
-                                        selected="compare_individuals"
-                                    ),
                                     ui.div(
                                         ui.input_action_button(
                                             "clear_selection", "🗑️ Clear Selection",
@@ -233,7 +229,15 @@ def create_app():
                             # Add a class for potential further specific styling
                             class_="mb-3" # Bootstrap margin-bottom class
                         ),
-                        
+                        ui.input_radio_buttons(
+                                        "display_mode_input", "📊 Display Mode:",
+                                        choices={
+                                            "compare_individuals": "Individual Countries",
+                                            "find_collaborations": "Find Collaborations (select at least 2 countries)"
+                                        },
+                                        inline=True,
+                                        selected="compare_individuals"
+                                    ),
                         # Trends and Data Table, now outside the map's sidebar layout
                         ui.navset_card_tab( 
                             ui.nav_panel("📈 Trends", output_widget("main_plot")),
