@@ -100,11 +100,11 @@ def create_app():
     app_ui = ui.page_navbar(
         ui.nav_panel(
             "📄 Article Highlights",
-            ui.p("Welcome to the Chemical Space Explorer. These plots highlight key findings from our research."),
+            ui.p("From 1996 to 2022, the landscape of chemical discovery shifted dramatically. China surged to dominate new substance creation, primarily through domestic research. Conversely, the United States' solo contributions declined, becoming more reliant on international collaborations, particularly with China. The plots below illustrate these trends, replicating key figures from the source article."),
             ui.navset_card_tab(
                 ui.nav_panel(
                     "🏆 Main Countries",
-                    ui.p("Placeholder text: This plot illustrates the trends in country participation in the Chemical Space over the years."),
+                    # ui.p("Placeholder text: This plot illustrates the trends in country participation in the Chemical Space over the years."),
                     output_widget("country_cs_plot")
                 ),
                 ui.nav_panel(
@@ -437,7 +437,7 @@ def create_app():
                 if df_filtered.empty:
                     return create_empty_plot("No country participation data available")
                 
-                return create_article_plot(df_filtered, "Country participation in the CS")
+                return create_article_plot(df_filtered, "Country participation in the growth of the CS")
             except Exception as e:
                 return create_empty_plot(f"Error loading article data: {str(e)}")
 
@@ -1010,21 +1010,23 @@ def create_article_plot(data: pd.DataFrame, title: str):
     
     for country in data['country'].unique():
         country_data = data[data['country'] == country]
+        color = country_data['cc'].iloc[0] if 'cc' in country_data.columns and not country_data.empty else None
         fig.add_trace(go.Scatter(
             x=country_data['year'],
             y=country_data['value'],
             mode='lines+markers',
             name=country,
-            line=dict(width=2),
+            line=dict(color=color, width=1) if color else dict(width=1),
             marker=dict(size=6)
         ))
     
     fig.update_layout(
-        title=f"Figure: {title}",
-        xaxis_title="Year",
-        yaxis_title="Value",
+        title=f"{title}",
+        # xaxis_title="Year",
+        yaxis_title="% of New Substances",
         template='plotly_white',
-        hovermode='x unified'
+        hovermode='x unified',
+        modebar_remove=['zoom', 'pan', 'lasso', 'select', 'zoomIn', 'zoomOut', 'autoScale', 'resetScale']
     )
     
     return fig
