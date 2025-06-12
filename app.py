@@ -620,7 +620,7 @@ def create_folium_map(country_list: pd.DataFrame, selected_countries: List[str])
                 fill_opacity = 0.8
                 stroke_weight = 2
             else:
-                color = 'lightblue'  # Subtle color for unselected
+                color = "#a1b4af",  # Default color for unselected countries
                 fill_opacity = 0.5
                 stroke_weight = 1
             
