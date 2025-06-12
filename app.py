@@ -221,7 +221,7 @@ def create_app():
                                         ui.div(ui.output_text("selection_info"), class_="mt-2 text-muted small")
                                     ),
                                     open = "closed", # Consider if this should be open by default
-                                    width=300 
+                                    width=220 
                                 ),
                                 # Main content for the map within its layout_sidebar
                                 ui.output_ui("map_output")
@@ -241,7 +241,14 @@ def create_app():
                         # Trends and Data Table, now outside the map's sidebar layout
                         ui.navset_card_tab( 
                             ui.nav_panel("📈 Trends", output_widget("main_plot")),
-                            ui.nav_panel("🌎 Global Snapshot", output_widget("contribution_map")),
+                            ui.nav_panel(
+                                "🌎 Global Snapshot",
+                                ui.p(
+                                    "This plot shows the global or regional snapshot of the chemical space contributions by countries, highlighting the average top individual contributors based on the year range selected (defaults to 1996-2022).",
+                                    style="font-size: 0.9em; color: #666; text-align: center;"
+                                ), 
+                                output_widget("contribution_map")
+                                ),
                             ui.nav_panel("📋 Data Table", ui.output_data_frame("summary_table"))
                         ),
                     )
@@ -824,7 +831,6 @@ def create_trends_plot(data: pd.DataFrame, selected_countries: List[str], mode: 
     value_column = 'total_percentage' # Expect this from get_display_data
     
     if value_column not in data.columns or data.empty:
-        # No valid column found, or data is empty
         fig.add_annotation(
             text=f"Error: Missing '{value_column}' column or no data.",
             xref="paper", yref="paper",
@@ -837,28 +843,51 @@ def create_trends_plot(data: pd.DataFrame, selected_countries: List[str], mode: 
         )
         return fig
     
+    # Initial sort of the entire dataset. This helps, but aggregation per group is key.
+    data = data.sort_values(['plot_group', 'year'])
+
     plot_title = "Chemical Space Contribution Trends"
+    show_legend_for_plot = True # Default to showing legend
 
     if mode == "compare_individuals":
-        # Individual country trends
-        for country_name in data['plot_group'].unique(): # plot_group is country name for individuals
-            country_data = data[data['plot_group'] == country_name]
-            color = country_data['plot_color'].iloc[0] if 'plot_color' in country_data.columns and not country_data.empty else None
+        plot_title = "Individual Country Contribution Trends"
+        for country_name_str in data['plot_group'].unique(): 
+            country_name = str(country_name_str) # Ensure string for name
+            country_data_full = data[data['plot_group'] == country_name]
+
+            if country_data_full.empty:
+                continue
+
+            # Aggregate data to ensure one entry per year for this country.
+            # This fixes issues with multiple points per year or lines going back and forth.
+            # Assumes 'plot_color' is consistent for the group if it exists.
+            agg_operations = {value_column: 'mean'} # Use mean for the value
+            if 'plot_color' in country_data_full.columns:
+                agg_operations['plot_color'] = 'first' # Take the first color
+            
+            country_data_agg = country_data_full.groupby('year', as_index=False).agg(agg_operations).sort_values('year')
+
+            if country_data_agg.empty:
+                continue
+            
+            color = country_data_agg['plot_color'].iloc[0] if 'plot_color' in country_data_agg.columns else None
+            
             fig.add_trace(go.Scatter(
-                x=country_data['year'],
-                y=country_data[value_column],
+                x=country_data_agg['year'],
+                y=country_data_agg[value_column],
                 mode='lines+markers',
-                name=str(country_name),
+                name=country_name,
                 line=dict(color=color if color else None),
                 hovertemplate=(
                     f"<b>{country_name}</b><br>" +
                     "Year: %{x}<br>" +
-                    f"{value_column}: %{{y:.2f}}%<extra></extra>"
+                    f"Contribution: %{{y:.2f}}%<extra></extra>"
                 )
             ))
-        plot_title = "Individual Country Contribution Trends"
     elif mode == "find_collaborations":
-        # Collaboration trends
+        plot_title = "Collaboration Trends"
+        show_legend_for_plot = False # Hide legend for collaboration mode
+        
         collab_type_colors = {
             "Bilateral": "rgba(255, 127, 14, 0.9)",
             "Trilateral": "rgba(44, 160, 44, 0.9)",
@@ -867,35 +896,52 @@ def create_trends_plot(data: pd.DataFrame, selected_countries: List[str], mode: 
             "Unknown": "rgba(127, 127, 127, 0.9)"
         }
 
-        for collab_id in data['plot_group'].unique(): # plot_group is collab ID string
-            collab_data = data[data['plot_group'] == collab_id]
-            if collab_data.empty: continue
+        for collab_id_str in data['plot_group'].unique(): 
+            collab_id = str(collab_id_str) # Ensure string for name
+            collab_data_full = data[data['plot_group'] == collab_id]
 
-            collab_type = collab_data['plot_color_group'].iloc[0] if 'plot_color_group' in collab_data.columns else "Unknown"
+            if collab_data_full.empty:
+                continue
+
+            # Aggregate data to ensure one entry per year for this collaboration.
+            # Assumes 'plot_color_group' is consistent for the group if it exists.
+            agg_operations_collab = {value_column: 'mean'} # Use mean for the value
+            if 'plot_color_group' in collab_data_full.columns:
+                agg_operations_collab['plot_color_group'] = 'first' # Take the first color group
+
+            collab_data_agg = collab_data_full.groupby('year', as_index=False).agg(agg_operations_collab).sort_values('year')
+            
+            if collab_data_agg.empty:
+                continue
+
+            collab_type = collab_data_agg['plot_color_group'].iloc[0] if 'plot_color_group' in collab_data_agg.columns else "Unknown"
             
             fig.add_trace(go.Scatter(
-                x=collab_data['year'],
-                y=collab_data[value_column],
+                x=collab_data_agg['year'],
+                y=collab_data_agg[value_column],
                 mode='lines+markers',
-                name=str(collab_id),
+                name=collab_id, # Name is kept for hover data, even if legend is hidden
+                showlegend=False, # Also explicitly hide trace from legend if layout legend is true
                 line=dict(color=collab_type_colors.get(str(collab_type), collab_type_colors["Unknown"])),
                 hovertemplate=(
                     f"<b>Collaboration: {collab_id}</b> ({collab_type})<br>" +
                     "Year: %{x}<br>" +
-                    f"{value_column}: %{{y:.2f}}%<extra></extra>"
+                    f"Contribution: %{{y:.2f}}%<extra></extra>"
                 )
             ))
-        plot_title = "Collaboration Trends"
     
     fig.update_layout(
         title=plot_title,
         xaxis_title="Year",
         yaxis_title="% of New Substances",
+        yaxis=dict(
+            ticksuffix='%',
+        ),
         hovermode='closest',
-        template='plotly_white'
+        template='plotly_white',
+        modebar_remove=['zoom', 'pan', 'lasso', 'select', 'zoomIn', 'zoomOut', 'autoScale', 'resetScale'],
+        showlegend=show_legend_for_plot # Control overall legend visibility
     )
-
-
     
     return fig
 
