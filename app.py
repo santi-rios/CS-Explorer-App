@@ -156,53 +156,62 @@ def create_app():
 
                 # --- Section 2: Explore Chemical Space ---
                 ui.h3("Explore Chemical Space Interactively", style="text-align: center; margin-bottom: 20px;"),
-                ui.layout_sidebar(
-                    ui.sidebar(
-                        ui.h5("⚙️ Filters & Options"),
-                        ui.input_select(
-                            "region_filter", "🌍 Filter by Region:",
-                            choices=initial_data['regions'], selected="All"
-                        ),
-                        ui.input_slider(
-                            "years", "📅 Year Range:",
-                            min=initial_data['min_year'], max=initial_data['max_year'],
-                            value=[initial_data['min_year'], initial_data['max_year']],
-                            step=1, sep=""
-                        ),
-                        ui.input_select(
-                            "chemical_category", "🧪 Chemical Space:",
-                            choices=initial_data['chemical_categories'], selected="All"
-                        ),
-                        ui.input_radio_buttons(
-                            "display_mode_input", "📊 Display Mode:",
-                            choices={
-                                "compare_individuals": "Compare Countries",
-                                "find_collaborations": "Find Collaborations"
-                            },
-                            selected="compare_individuals"
-                        ),
-                        ui.div(
-                            ui.input_action_button(
-                                "clear_selection", "🗑️ Clear Selection",
-                                class_="btn-outline-danger w-100"
+                
+                # Card for the Interactive Map, with its own internal sidebar
+                ui.card(
+                    ui.card_header("🗺️ Interactive Chemical Space Map"),
+                    ui.layout_sidebar(
+                        ui.sidebar(
+                            ui.h5("⚙️ Filters & Options"),
+                            ui.input_select(
+                                "region_filter", "🌍 Filter by Region:",
+                                choices=initial_data['regions'], selected="All"
                             ),
-                            ui.div(ui.output_text("selection_info"), class_="mt-2 text-muted small")
+                            ui.input_slider(
+                                "years", "📅 Year Range:",
+                                min=initial_data['min_year'], max=initial_data['max_year'],
+                                value=[initial_data['min_year'], initial_data['max_year']],
+                                step=1, sep=""
+                            ),
+                            ui.input_select(
+                                "chemical_category", "🧪 Chemical Space:",
+                                choices=initial_data['chemical_categories'], selected="All"
+                            ),
+                            ui.input_radio_buttons(
+                                "display_mode_input", "📊 Display Mode:",
+                                choices={
+                                    "compare_individuals": "Compare Countries",
+                                    "find_collaborations": "Find Collaborations"
+                                },
+                                selected="compare_individuals"
+                            ),
+                            ui.div(
+                                ui.input_action_button(
+                                    "clear_selection", "🗑️ Clear Selection",
+                                    class_="btn-outline-danger w-100"
+                                ),
+                                ui.div(ui.output_text("selection_info"), class_="mt-2 text-muted small")
+                            ),
+                            width=220 # Adjust sidebar width as needed, e.g., 250, 300, 350
                         ),
-                        ui.hr(style="margin-top: 20px; margin-bottom: 15px;"),
-                        ui.h5("🌍 Global Contribution Snapshot"),
-                        output_widget("contribution_map"), # Global Contribution Map in sidebar
-                        width=370 # Adjust width for better map display in sidebar
-                    ),
-                    # Main content area for the "Explore" section
-                    ui.card( 
-                        ui.card_header("🗺️ Interactive Chemical Space Map"),
-                        ui.output_ui("map_output") 
-                    ),
-                    ui.navset_card_tab( 
-                        ui.nav_panel("📈 Trends", output_widget("main_plot")),
-                        ui.nav_panel("📋 Data Table", ui.output_data_frame("summary_table"))
+                        # Main content for the map within its layout_sidebar
+                        ui.output_ui("map_output")
                     )
-                )
+                ),
+                
+                # Trends and Data Table, now outside the map's sidebar layout
+                ui.navset_card_tab( 
+                    ui.nav_panel("📈 Trends", output_widget("main_plot")),
+                    ui.nav_panel("📋 Data Table", ui.output_data_frame("summary_table"))
+                ),
+                
+                # Global Contribution Map (if it's not the floating panel from the previous step)
+                # If it's floating, this card should be removed.
+                # If it's meant to be here, it will now be a separate card.
+                # ui.card(
+                #     ui.card_header("📊 Global Contribution Map"),
+                #     output_widget("contribution_map") 
+                # )
             )
         ),
         # --- Other nav panels remain for auxiliary content ---
