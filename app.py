@@ -1024,6 +1024,9 @@ def create_article_plot(data: pd.DataFrame, title: str):
         title=f"{title}",
         # xaxis_title="Year",
         yaxis_title="% of New Substances",
+        yaxis = dict(
+            ticksuffix='%'
+        ),
         template='plotly_white',
         hovermode='x unified',
         modebar_remove=['zoom', 'pan', 'lasso', 'select', 'zoomIn', 'zoomOut', 'autoScale', 'resetScale']
