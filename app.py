@@ -98,7 +98,31 @@ def create_app():
                     "Dashboard", # This will be the main landing page
                     ui.div(
                         # --- Section 1: Article Highlights ---
-                        ui.h3("Key Article Insights", style="text-align: center; margin-bottom: 20px; margin-top: 20px;"),
+                        ui.h3("China's Rise in the Chemical Space", style="text-align: center; margin-bottom: 20px; margin-top: 20px;"),
+                        ui.p(
+                            "Explore the rise of China's influence in the chemical space and the decline of US dominance through interactive visualizations.",
+                            style="text-align: center; margin-bottom: 15px; font-size: 1.1em; color: #555;"
+                        ),
+                        ui.p(
+                            ui.tags.span("Source: "),
+                            ui.tags.a("Bermúdez-Montaña, M., et al. (2025). China's rise in the chemical space and the decline of US influence.", 
+                                  href="https://chemrxiv.org/engage/chemrxiv/article-details/67920ada6dde43c908f688f6",
+                                  target="_blank"),
+                            style="text-align: center; margin-bottom: 30px; font-size: 0.9em; color: #666; font-style: italic;"
+                        ),
+                        ui.div(
+                            ui.popover(
+                                ui.input_action_button(
+                                    "btn", "📌 Quick Summary", 
+                                    class_="btn-primary",
+                                    style="margin: 0 auto; display: block; padding: 8px 16px; font-weight: bold;"
+                                ),
+                                "From 1996 to 2022, the landscape of chemical discovery shifted dramatically. China surged to dominate new substance creation, primarily through domestic research.",
+                                " Conversely, the United States' solo contributions declined, becoming more reliant on international collaborations, particularly with China.",
+                                id="btn_popover",
+                            ),
+                            style="text-align: center; margin-bottom: 30px;"
+                        ),
                         
                         # First set of plots (Main Countries, GDP, Researchers) in a tabset
                         ui.row(
@@ -113,17 +137,26 @@ def create_app():
                                                   )
                                               ),
                                               ui.nav_panel(
-                                                  "💰 GDP",
+                                                  "💰 GDP and growth",
                                                   ui.card(
+                                                      ui.p("Percentage of the annual growth rate of the gross domestic product (GDP) per capita"),
                                                       output_widget("article_gdp_plot")
                                                   )
                                               ),
                                               ui.nav_panel(
-                                                  "👥 Researchers",
+                                                  "👥 Number of Researchers",
                                                   ui.card(
+                                                      ui.p("Number of researchers in research and development activities"),
                                                       output_widget("article_researchers_plot")
                                                   )
                                               ),
+                                              ui.nav_panel(
+                                                  "🧪 Chemical Space Expansion",
+                                                  ui.card(
+                                                      ui.p("Recent expansion of the CS and of three of its subspaces"),
+                                                      output_widget("article_cs_expansion_plot")
+                                                  )
+                                              )
                                           ),
                                           style="border: 1px solid #dee2e6; border-radius: .25rem; padding: 15px; background-color: #f8f9fa;"
                                       )
@@ -200,6 +233,7 @@ def create_app():
                         # Trends and Data Table, now outside the map's sidebar layout
                         ui.navset_card_tab( 
                             ui.nav_panel("📈 Trends", output_widget("main_plot")),
+                            ui.nav_panel("🌎 Global Snapshot", output_widget("contribution_map")),
                             ui.nav_panel("📋 Data Table", ui.output_data_frame("summary_table"))
                         ),
                     )
@@ -1016,6 +1050,12 @@ def create_article_plot(data: pd.DataFrame, title: str):
             ticksuffix='%'
         ),
         template='plotly_white',
+        showlegend=True,
+        legend=dict(
+            orientation="h", 
+            y=-0.2,
+            traceorder="reversed"  # Display in same order as traces
+        ),
         hovermode='x unified',
         modebar_remove=['zoom', 'pan', 'lasso', 'select', 'zoomIn', 'zoomOut', 'autoScale', 'resetScale']
     )
@@ -1061,6 +1101,8 @@ def create_top_trends_plot(data: pd.DataFrame, title: str):
         template='plotly_white',
         showlegend=True,
         legend=dict(
+            title="Top Contributors",
+            # text = "Sorted by Avg Contribution",
             orientation="h", 
             y=-0.2,
             traceorder="reversed"  # Display in same order as traces
@@ -1131,6 +1173,12 @@ def create_gdp_plot(data: pd.DataFrame):
         yaxis = dict(
             ticksuffix='%'
         ),
+        showlegend=True,
+        legend=dict(
+            orientation="h", 
+            y=-0.2,
+            traceorder="reversed"  # Display in same order as traces
+        ),
         hovermode='x unified',
         modebar_remove=['zoom', 'pan', 'lasso', 'select', 'zoomIn', 'zoomOut', 'autoScale', 'resetScale']
     )
@@ -1161,6 +1209,12 @@ def create_researchers_plot(data: pd.DataFrame):
             # tickformat = ',.0f'  # Format as whole numbers
         ),
         template='plotly_white',
+        showlegend=True,
+        legend=dict(
+            orientation="h", 
+            y=-0.2,
+            traceorder="reversed"  # Display in same order as traces
+        ),
         hovermode='x unified',
         modebar_remove=['zoom', 'pan', 'lasso', 'select', 'zoomIn', 'zoomOut', 'autoScale', 'resetScale']
     )
@@ -1185,6 +1239,12 @@ def create_cs_expansion_plot(data: pd.DataFrame):
     fig.update_layout(
         yaxis_title="Number of New Substances",
         template='plotly_white',
+        showlegend=True,
+        legend=dict(
+            orientation="h", 
+            y=-0.2,
+            traceorder="reversed"  # Display in same order as traces
+        ),
         hovermode='x unified',
         modebar_remove=['zoom', 'pan', 'lasso', 'select', 'zoomIn', 'zoomOut', 'autoScale', 'resetScale']
     )
