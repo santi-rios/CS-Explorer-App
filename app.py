@@ -98,7 +98,7 @@ def create_app():
                     "Dashboard", # This will be the main landing page
                     ui.div(
                         # --- Section 1: Article Highlights ---
-                        ui.h3("China's Rise in the Chemical Space", style="text-align: center; margin-bottom: 20px; margin-top: 20px;"),
+                        ui.h3("China's Rise in the Chemical Space (CS)", style="text-align: center; margin-bottom: 20px; margin-top: 20px;"),
                         ui.p(
                             "Explore the rise of China's influence in the chemical space and the decline of US dominance through interactive visualizations.",
                             style="text-align: center; margin-bottom: 15px; font-size: 1.1em; color: #555;"
@@ -129,6 +129,7 @@ def create_app():
                             ui.column(12, 
                                       # Add a subtle border and padding to this group
                                       ui.div(
+                                          ui.h4("📊 Key Article Figures", style="text-align: center; margin-top: 0;"),
                                           ui.navset_card_tab(
                                               ui.nav_panel(
                                                   "🏆 Main Countries",
@@ -168,12 +169,15 @@ def create_app():
                             ui.column(12, 
                                       # Using panel_well for a slightly inset and different background
                                       ui.panel_well(
-                                          ui.h4("🤝 Top Collaborations", style="margin-top: 0; text-align: center;"), # Centered H4 instead of card_header
+                                          ui.h4("🤝 Explore Top Collaborations and Countries in the CS", style="margin-top: 0; text-align: center;"), # Centered H4 instead of card_header
                                           ui.row( # Filters for this specific plot
-                                              ui.column(6, ui.input_select("top_collabs_chem_filter", "Chemical Category:", choices=initial_data['chemical_categories'], selected="All")),
+                                              ui.column(6, ui.input_select("top_collabs_chem_filter", "Chemical Space Category:", choices=initial_data['chemical_categories'], selected="All")),
                                               ui.column(6, ui.input_radio_buttons("top_data_type_filter", "Show Top:", choices={"collabs": "Collaborations", "individuals": "Countries"}, selected="collabs"))
                                           ),
                                           output_widget("article_top_collabs_plot"),
+                                          ui.p("Legend is sorted by the average contribution (shown in parenthesis) of the collaboration/country to the CS between 1996 to 2022.",
+                                              style="font-size: 0.9em; color: #666; text-align: center;"),
+                                          class_="border rounded p-3 bg-light", # Bootstrap classes for styling
                                           style="margin-top: 20px; margin-bottom: 20px;" # Add some vertical margin
                                       )
                             )
@@ -1083,7 +1087,7 @@ def create_top_trends_plot(data: pd.DataFrame, title: str):
             mode='lines+markers',
             name=f"{entity} ({avg_value:.2f}%)",  # Include avg in legend
             line=dict(width=1.5),
-            marker=dict(size=entity_data['percentage'].abs().clip(upper=15) + 2, color=entity_data['cc'].iloc[0] if 'cc' in entity_data.columns and not entity_data.empty else 'red'),
+            marker=dict(color=entity_data['cc'].iloc[0] if 'cc' in entity_data.columns and not entity_data.empty else 'red'),
             hovertemplate=(
                 "<b>%{fullData.name}</b><br>" +
                 "Year: %{x}<br>" +
@@ -1101,7 +1105,7 @@ def create_top_trends_plot(data: pd.DataFrame, title: str):
         template='plotly_white',
         showlegend=True,
         legend=dict(
-            title="Top Contributors",
+            # title="Top Contributors",
             # text = "Sorted by Avg Contribution",
             orientation="h", 
             y=-0.2,
