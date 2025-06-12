@@ -1017,7 +1017,7 @@ def create_article_plot(data: pd.DataFrame, title: str):
             mode='lines+markers',
             name=country,
             line=dict(color=color, width=1) if color else dict(width=1),
-            marker=dict(size=6)
+            marker=dict(size=country_data['value'].abs().clip(upper=15) + 2, color=color if color else 'red')
         ))
     
     fig.update_layout(
