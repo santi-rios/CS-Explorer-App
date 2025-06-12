@@ -528,7 +528,7 @@ def load_article_data():
     """Load and cache article data"""
     try:
         df = pd.read_parquet("./data/data.parquet")
-        article_columns_map = {'source': 'source', 'year_x': 'year', 'country_x': 'country', 'percentage_x': 'value'}
+        article_columns_map = {'source': 'source', 'year_x': 'year', 'country_x': 'country', 'percentage_x': 'value', 'cc': 'cc'}
         required_raw_cols = list(article_columns_map.keys())
 
         if all(col in df.columns for col in required_raw_cols):
