@@ -134,18 +134,18 @@ def create_app():
                     output_widget("article_top_collabs_plot")
                 ),
                 ui.nav_panel(
-                    "� GDP",
-                    ui.p("Placeholder text: This plot visualizes the annual growth rate of GDP for key countries, with markers for significant economic events."),
+                    "💰 GDP",
+                    ui.p("Percentage of the annual growth rate of the gross domestic product (GDP) per capita."),
                     output_widget("article_gdp_plot")
                 ),
                 ui.nav_panel(
                     "👥 Researchers",
-                    ui.p("Placeholder text: This plot displays the number of researchers over time for selected countries."),
+                    ui.p("Number of researchers in research and development activities."),
                     output_widget("article_researchers_plot")
                 ),
                 ui.nav_panel(
                     "📊 CS Expansion",
-                    ui.p("Placeholder text: This plot shows the expansion rate of the Chemical Space attributed to different countries."),
+                    ui.p("Recent expansion of the CS and of three of its subspaces."),
                     output_widget("article_cs_expansion_plot")
                 )
             )
@@ -244,7 +244,7 @@ def create_app():
         id="navbar",
         footer=ui.div(
             ui.hr(),
-            ui.p("Placeholder footer: © 2025 Chemical Space Explorer. All rights reserved. For inquiries, please contact [Your Name/Lab]."),
+            ui.p("Source: Bermúdez-Montaña, M., et al. (2025). China's rise in the chemical space and the decline of US influence."),
             style="text-align: center; padding: 10px; font-size: 0.9em; color: #777;"
         )
     )
@@ -467,7 +467,7 @@ def create_app():
                 
                 return create_top_trends_plot(
                     filtered_data[filtered_data['country'].isin(top_data.index)],
-                    f"Top 10 {'Collaborations' if is_collab else 'Countries'}: {chem_filter}"
+                    f"Top 10 {'Collaborations' if is_collab else 'Countries'}: {chem_filter} 'Chemicals'" 
                 )
             except Exception as e:
                 return create_empty_plot(f"Error: {str(e)}")
@@ -1039,7 +1039,7 @@ def create_top_trends_plot(data: pd.DataFrame, title: str):
     fig = go.Figure()
     
     # Calculate the average percentage for each entity to sort the legend
-    avg_percentages = data.groupby('country')['percentage'].mean().sort_values(ascending=False)
+    avg_percentages = data.groupby('country')['percentage'].mean().sort_values(ascending=True)
     
     # Plot entities in order of their average percentage (highest first)
     for entity in avg_percentages.index:
@@ -1055,7 +1055,7 @@ def create_top_trends_plot(data: pd.DataFrame, title: str):
             mode='lines+markers',
             name=f"{entity} ({avg_value:.2f}%)",  # Include avg in legend
             line=dict(width=1.5),
-            marker=dict(size=4),
+            marker=dict(size=entity_data['percentage'].abs().clip(upper=15) + 2, color=entity_data['cc'].iloc[0] if 'cc' in entity_data.columns and not entity_data.empty else 'red'),
             hovertemplate=(
                 "<b>%{fullData.name}</b><br>" +
                 "Year: %{x}<br>" +
@@ -1067,6 +1067,9 @@ def create_top_trends_plot(data: pd.DataFrame, title: str):
         title=title,
         xaxis_title="Year", 
         yaxis_title="% of New Substances",
+        yaxis = dict(
+            ticksuffix='%'
+        ),
         template='plotly_white',
         showlegend=True,
         legend=dict(
@@ -1074,7 +1077,8 @@ def create_top_trends_plot(data: pd.DataFrame, title: str):
             y=-0.2,
             traceorder="reversed"  # Display in same order as traces
         ),
-        hovermode='closest'  # Show nearest point hover info
+        hovermode='closest',
+        modebar_remove=['zoom', 'pan', 'lasso', 'select', 'zoomIn', 'zoomOut', 'autoScale', 'resetScale']
     )
     
     return fig
@@ -1108,7 +1112,7 @@ def create_gdp_plot(data: pd.DataFrame):
             mode='lines+markers',
             name=country,
             line=dict(width=2),
-            marker=dict(size=6)
+            marker=dict(size=country_data['value'].abs().clip(upper=15) + 2, color=country_data['cc'].iloc[0] if 'cc' in country_data.columns and not country_data.empty else 'red')
         ))
     
     # Add vertical lines and annotations for economic events
@@ -1134,11 +1138,13 @@ def create_gdp_plot(data: pd.DataFrame):
         )
     
     fig.update_layout(
-        title="Figure: Annual growth rate of the GDP",
-        xaxis_title="Year",
         yaxis_title="GDP Growth Rate (%)",
         template='plotly_white',
-        hovermode='x unified'
+        yaxis = dict(
+            ticksuffix='%'
+        ),
+        hovermode='x unified',
+        modebar_remove=['zoom', 'pan', 'lasso', 'select', 'zoomIn', 'zoomOut', 'autoScale', 'resetScale']
     )
     
     return fig
@@ -1157,15 +1163,18 @@ def create_researchers_plot(data: pd.DataFrame):
             mode='lines+markers',
             name=country,
             line=dict(width=2),
-            marker=dict(size=6)
+            marker=dict(size=scaled_values.abs().clip(lower=1, upper=15) + 2, color=country_data['cc'].iloc[0] if 'cc' in country_data.columns and not country_data.empty else 'red')
         ))
     
     fig.update_layout(
-        title="Figure: Number of Researchers",
-        xaxis_title="Year",
         yaxis_title="Number of Researchers (Millions)",
+        yaxis = dict(
+            ticksuffix= 'M'
+            # tickformat = ',.0f'  # Format as whole numbers
+        ),
         template='plotly_white',
-        hovermode='x unified'
+        hovermode='x unified',
+        modebar_remove=['zoom', 'pan', 'lasso', 'select', 'zoomIn', 'zoomOut', 'autoScale', 'resetScale']
     )
     
     return fig
@@ -1186,11 +1195,10 @@ def create_cs_expansion_plot(data: pd.DataFrame):
         ))
     
     fig.update_layout(
-        title="Figure: Chemical Space Expansion",
-        xaxis_title="Year",
-        yaxis_title="Expansion Rate",
+        yaxis_title="Number of New Substances",
         template='plotly_white',
-        hovermode='x unified'
+        hovermode='x unified',
+        modebar_remove=['zoom', 'pan', 'lasso', 'select', 'zoomIn', 'zoomOut', 'autoScale', 'resetScale']
     )
     
     return fig
