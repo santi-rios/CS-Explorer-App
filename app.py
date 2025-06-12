@@ -68,13 +68,10 @@ def create_app():
         df_sample = pd.read_parquet("./data/data.parquet", columns=['chemical', 'year', 'region'])
         
         unique_chemicals = df_sample['chemical'].dropna().unique().tolist()
-        # Ensure 'All' is the first option and filter out empty strings
         chemical_categories = ['All'] + sorted([chem for chem in unique_chemicals if chem and str(chem).strip()])
-        # Remove duplicates if 'All' was already in unique_chemicals
         chemical_categories = list(dict.fromkeys(chemical_categories))
 
         unique_regions = df_sample['region'].fillna('Other').unique().tolist()
-        # Ensure 'All' is the first option and remove potential duplicates
         regions = ['All'] + sorted(list(set(region for region in unique_regions if region and str(region).strip() and region != 'All')))
         
         min_year = int(df_sample['year'].min())
@@ -88,7 +85,7 @@ def create_app():
         }
         
     except Exception as e:
-        print(f"Error loading initial data: {e}")
+        print(f"Error loading initial data for UI: {e}")
         initial_data = {
             'chemical_categories': ["All"],
             'regions': ["All"],
@@ -96,132 +93,123 @@ def create_app():
             'max_year': 2022
         }
 
-    # UI Definition with improved layout
     app_ui = ui.page_navbar(
-        ui.nav_panel(
-            "📄 Article Highlights",
-            ui.p("From 1996 to 2022, the landscape of chemical discovery shifted dramatically. China surged to dominate new substance creation, primarily through domestic research. Conversely, the United States' solo contributions declined, becoming more reliant on international collaborations, particularly with China. The plots below illustrate these trends, replicating key figures from the source article."),
-            ui.navset_card_tab(
                 ui.nav_panel(
-                    "🏆 Top Contributors",
-                    # ui.p("Placeholder text: This plot illustrates the trends in country participation in the Chemical Space over the years."),
-                    output_widget("country_cs_plot")
-                ),
-                ui.nav_panel(
-                    "🤝 Top Collaborations",
-                     ui.p("Explore top contributors and their collaboration trends across the chemical space."),
-                    ui.row(
-                        ui.column(6,
-                            ui.input_select(
-                                "top_collabs_chem_filter",
-                                "Chemical Category:",
-                                choices=initial_data['chemical_categories'],
-                                selected="All"
+                    "Dashboard", # This will be the main landing page
+                    ui.div(
+                        # --- Section 1: Article Highlights ---
+                        ui.h3("Key Article Insights", style="text-align: center; margin-bottom: 20px; margin-top: 20px;"),
+                        ui.row(
+                            ui.column(12, 
+                                ui.navset_card_tab(
+                                    ui.nav_panel(
+                                        "🏆 Main Countries",
+                                        ui.card(
+                                            output_widget("country_cs_plot")
+                                        )
+                                    ),
+                                    ui.nav_panel(
+                                        "💰 GDP",
+                                        ui.card(
+                                            output_widget("article_gdp_plot")
+                                        )
+                                    ),
+                                    ui.nav_panel(
+                                        "👥 Researchers",
+                                        ui.card(
+                                            output_widget("article_researchers_plot")
+                                        )
+                                    ),
+                                    # You can add the CS Expansion plot here as another tab if desired
+                                    # ui.nav_panel(
+                                    #     "📊 CS Expansion",
+                                    #     ui.card(
+                                    #         output_widget("article_cs_expansion_plot")
+                                    #     )
+                                    # )
+                                )
                             )
                         ),
-                        ui.column(6,
-                            ui.input_radio_buttons(
-                                "top_data_type_filter",
-                                "Show Top:",
-                                choices={
-                                    "collabs": "Collaborations",
-                                    "individuals": "Countries"
-                                },
-                                selected="collabs"
-                            )
-                        )
-                    ),
-                    output_widget("article_top_collabs_plot")
-                ),
-                ui.nav_panel(
-                    "💰 GDP",
-                    ui.p("Percentage of the annual growth rate of the gross domestic product (GDP) per capita."),
-                    output_widget("article_gdp_plot")
-                ),
-                ui.nav_panel(
-                    "👥 Researchers",
-                    ui.p("Number of researchers in research and development activities."),
-                    output_widget("article_researchers_plot")
-                ),
-                ui.nav_panel(
-                    "📊 CS Expansion",
-                    ui.p("Recent expansion of the CS and of three of its subspaces."),
-                    output_widget("article_cs_expansion_plot")
-                )
-            )
-        ),
-        ui.nav_panel(
-            "�🔬 Explore Chemical Space",
-            ui.layout_sidebar(
-                ui.sidebar(
-                    ui.h4("⚙️ Filters & Options"),
-                    ui.input_select(
-                        "region_filter",
-                        "🌍 Filter by Region:",
-                        choices=initial_data['regions'],
-                        selected="All"
-                    ),
-                    ui.input_slider(
-                        "years",
-                        "📅 Year Range:",
-                        min=initial_data['min_year'],
-                        max=initial_data['max_year'],
-                        value=[initial_data['min_year'], initial_data['max_year']],
-                        step=1,
-                        sep=""
-                    ),
-                    ui.input_select(
-                        "chemical_category",
-                        "🧪 Chemical Space:",
-                        choices=initial_data['chemical_categories'],
-                        selected="All"
-                    ),
-                    ui.input_radio_buttons(
-                        "display_mode_input",
-                        "📊 Display Mode:",
-                        choices={
-                            "compare_individuals": "Compare Countries",
-                            "find_collaborations": "Find Collaborations"
-                        },
-                        selected="compare_individuals"
-                    ),
-                    ui.div(
-                        ui.input_action_button(
-                            "clear_selection",
-                            "🗑️ Clear Selection",
-                            class_="btn-outline-danger w-100"
+                        ui.row(
+                            ui.column(12, ui.card(
+                                ui.card_header("🤝 Top Collaborations"),
+                                ui.row( # Filters for this specific plot
+                                    ui.column(6, ui.input_select("top_collabs_chem_filter", "Chemical Category:", choices=initial_data['chemical_categories'], selected="All")),
+                                    ui.column(6, ui.input_radio_buttons("top_data_type_filter", "Show Top:", choices={"collabs": "Collaborations", "individuals": "Countries"}, selected="collabs"))
+                                ),
+                                output_widget("article_top_collabs_plot")
+                            ))
+                        ),
+                        # The CS Expansion plot was here. If you want to keep it, 
+                        # you could add it as another tab above or in a new row.
+                        # For example, to add it as a new row:
+                        # ui.row(
+                        #     ui.column(12, ui.card(
+                        #         ui.card_header("� CS Expansion"),
+                        #         output_widget("article_cs_expansion_plot")
+                        #     ))
+                        # ),
+        
+                        ui.hr(style="margin-top: 30px; margin-bottom: 30px; border-top: 2px solid #007bff;"),
+
+                ui.hr(style="margin-top: 30px; margin-bottom: 30px; border-top: 2px solid #007bff;"),
+
+                # --- Section 2: Explore Chemical Space ---
+                ui.h3("Explore Chemical Space Interactively", style="text-align: center; margin-bottom: 20px;"),
+                ui.layout_sidebar(
+                    ui.sidebar(
+                        ui.h5("⚙️ Filters & Options"),
+                        ui.input_select(
+                            "region_filter", "🌍 Filter by Region:",
+                            choices=initial_data['regions'], selected="All"
+                        ),
+                        ui.input_slider(
+                            "years", "📅 Year Range:",
+                            min=initial_data['min_year'], max=initial_data['max_year'],
+                            value=[initial_data['min_year'], initial_data['max_year']],
+                            step=1, sep=""
+                        ),
+                        ui.input_select(
+                            "chemical_category", "🧪 Chemical Space:",
+                            choices=initial_data['chemical_categories'], selected="All"
+                        ),
+                        ui.input_radio_buttons(
+                            "display_mode_input", "📊 Display Mode:",
+                            choices={
+                                "compare_individuals": "Compare Countries",
+                                "find_collaborations": "Find Collaborations"
+                            },
+                            selected="compare_individuals"
                         ),
                         ui.div(
-                            ui.output_text("selection_info"),
-                            class_="mt-2 text-muted small"
-                        )
+                            ui.input_action_button(
+                                "clear_selection", "🗑️ Clear Selection",
+                                class_="btn-outline-danger w-100"
+                            ),
+                            ui.div(ui.output_text("selection_info"), class_="mt-2 text-muted small")
+                        ),
+                        ui.hr(style="margin-top: 20px; margin-bottom: 15px;"),
+                        ui.h5("🌍 Global Contribution Snapshot"),
+                        output_widget("contribution_map"), # Global Contribution Map in sidebar
+                        width=370 # Adjust width for better map display in sidebar
                     ),
-                    width=300
-                ),
-                ui.card(
-                    ui.card_header("🗺️ Interactive Chemical Space Map"),
-                    ui.output_ui("map_output"),
-                ),
-                ui.card(
-                    ui.card_header("🌍 Global Contribution Map"), # Relocated contribution_map
-                    output_widget("contribution_map")
-                ),
-                ui.navset_card_tab(
-                    ui.nav_panel(
-                        "📈 Trends",
-                        output_widget("main_plot")
+                    # Main content area for the "Explore" section
+                    ui.card( 
+                        ui.card_header("🗺️ Interactive Chemical Space Map"),
+                        ui.output_ui("map_output") 
                     ),
-                    ui.nav_panel(
-                        "📋 Data Table",
-                        ui.output_data_frame("summary_table")
+                    ui.navset_card_tab( 
+                        ui.nav_panel("📈 Trends", output_widget("main_plot")),
+                        ui.nav_panel("📋 Data Table", ui.output_data_frame("summary_table"))
                     )
                 )
             )
         ),
+        # --- Other nav panels remain for auxiliary content ---
         ui.nav_panel(
-            "� Original Article",
+            "📖 Original Article",
             ui.tags.iframe(
-                src="original_article.pdf", # Make sure this file is in /www/original_article.pdf
+                src="original_article.pdf", # Ensure this is in the www/ directory
                 style="width: 100%; height: 80vh; border: none;"
             )
         ),
@@ -233,7 +221,6 @@ def create_app():
                     ui.tags.li(ui.tags.a("GitHub Repository", href="YOUR_GITHUB_REPO_LINK_HERE", target="_blank")),
                     ui.tags.li(ui.tags.a("Your Personal Webpage", href="YOUR_PERSONAL_WEBPAGE_LINK_HERE", target="_blank")),
                     ui.tags.li(ui.tags.a("Lab/Institution Page", href="YOUR_LAB_LINK_HERE", target="_blank")),
-                    # Add more links as needed
                 ),
                 ui.h4("Contact"),
                 ui.p("For questions or collaborations, please reach out to [Your Name/Email]."),
@@ -241,11 +228,13 @@ def create_app():
             )
         ),
         title="Chemical Space Explorer 🧬",
-        id="navbar",
         footer=ui.div(
             ui.hr(),
-            ui.p("Source: Bermúdez-Montaña, M., et al. (2025). China's rise in the chemical space and the decline of US influence."),
-            style="text-align: center; padding: 10px; font-size: 0.9em; color: #777;"
+            ui.p(
+                "Source: Bermúdez-Montaña, M., et al. (2025). China's rise in the chemical space and the decline of US influence. ",
+                ui.tags.i("Placeholder citation details."), # Example of adding more details
+                style="text-align: center; padding: 10px; font-size: 0.9em; color: #777;"
+            )
         )
     )
 
