@@ -103,13 +103,13 @@ def create_app():
             ui.p("From 1996 to 2022, the landscape of chemical discovery shifted dramatically. China surged to dominate new substance creation, primarily through domestic research. Conversely, the United States' solo contributions declined, becoming more reliant on international collaborations, particularly with China. The plots below illustrate these trends, replicating key figures from the source article."),
             ui.navset_card_tab(
                 ui.nav_panel(
-                    "🏆 Main Countries",
+                    "🏆 Top Contributors",
                     # ui.p("Placeholder text: This plot illustrates the trends in country participation in the Chemical Space over the years."),
                     output_widget("country_cs_plot")
                 ),
                 ui.nav_panel(
                     "🤝 Top Collaborations",
-                     ui.p("Placeholder text: This plot shows the top collaborations or individual country contributions based on the selected chemical category."),
+                     ui.p("Explore top contributors and their collaboration trends across the chemical space."),
                     ui.row(
                         ui.column(6,
                             ui.input_select(
@@ -1038,15 +1038,29 @@ def create_top_trends_plot(data: pd.DataFrame, title: str):
     """Create top contributors/collaborations plot"""
     fig = go.Figure()
     
-    for entity in data['country'].unique():
+    # Calculate the average percentage for each entity to sort the legend
+    avg_percentages = data.groupby('country')['percentage'].mean().sort_values(ascending=False)
+    
+    # Plot entities in order of their average percentage (highest first)
+    for entity in avg_percentages.index:
         entity_data = data[data['country'] == entity]
+        # Ensure entity data is sorted by year for proper line drawing
+        entity_data = entity_data.sort_values('year')
+        
+        avg_value = avg_percentages[entity]
+        
         fig.add_trace(go.Scatter(
             x=entity_data['year'],
             y=entity_data['percentage'],
             mode='lines+markers',
-            name=entity,
+            name=f"{entity} ({avg_value:.2f}%)",  # Include avg in legend
             line=dict(width=1.5),
-            marker=dict(size=4)
+            marker=dict(size=4),
+            hovertemplate=(
+                "<b>%{fullData.name}</b><br>" +
+                "Year: %{x}<br>" +
+                "Contribution: %{y:.2f}%<extra></extra>"
+            )
         ))
     
     fig.update_layout(
@@ -1055,7 +1069,12 @@ def create_top_trends_plot(data: pd.DataFrame, title: str):
         yaxis_title="% of New Substances",
         template='plotly_white',
         showlegend=True,
-        legend=dict(orientation="h", y=-0.2)
+        legend=dict(
+            orientation="h", 
+            y=-0.2,
+            traceorder="reversed"  # Display in same order as traces
+        ),
+        hovermode='closest'  # Show nearest point hover info
     )
     
     return fig
