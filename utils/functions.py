@@ -11,6 +11,8 @@ from typing import List, Dict, Optional, Tuple, Union
 import geopandas as gpd
 from pathlib import Path
 from functools import lru_cache
+import folium
+
 
 def load_country_data(data_path: str = "./data/data.parquet") -> Dict:
     """
@@ -377,28 +379,136 @@ def create_contribution_map_plot(
     
     return fig
 
-def create_empty_plot(message: str) -> go.Figure:
-    """Create empty plot with better styling"""
+def create_empty_plot(message: str):
+    """Create empty plot with message"""
     fig = go.Figure()
     fig.add_annotation(
         text=message,
         xref="paper", yref="paper",
-        x=0.5, y=0.5, 
-        xanchor='center', yanchor='middle',
-        showarrow=False, 
-        font=dict(size=16, color="gray"),
-        bgcolor="rgba(255,255,255,0.8)",
-        bordercolor="lightgray",
-        borderwidth=1
+        x=0.5, y=0.5, xanchor='center', yanchor='middle',
+        showarrow=False, font=dict(size=16)
     )
     fig.update_layout(
         xaxis=dict(visible=False),
         yaxis=dict(visible=False),
-        template='plotly_white',
-        height=400,
-        margin=dict(l=20, r=20, t=40, b=20)
+        template='plotly_white'
     )
     return fig
+
+def create_trends_plot(data: pd.DataFrame, selected_countries: List[str], mode: str):
+    """Create trends plot using Plotly"""
+    fig = go.Figure()
+    
+    value_column = 'total_percentage' # Expect this from get_display_data
+    
+    if value_column not in data.columns or data.empty:
+        fig.add_annotation(
+            text=f"Error: Missing '{value_column}' column or no data.",
+            xref="paper", yref="paper",
+            x=0.5, y=0.5, showarrow=False
+        )
+        fig.update_layout(
+            xaxis=dict(visible=False),
+            yaxis=dict(visible=False),
+            template='plotly_white'
+        )
+        return fig
+    
+    # Sort the entire dataset by plot_group and then by year.
+    # This ensures that when we iterate through unique plot_groups,
+    # the data for each group is already sorted by year.
+    data_sorted = data.sort_values(['plot_group', 'year'])
+
+    plot_title = "Chemical Space Contribution Trends"
+    show_legend_for_plot = True # Default to showing legend
+
+    if mode == "compare_individuals":
+        plot_title = "Individual Country Contribution Trends"
+        for country_name_str in data_sorted['plot_group'].unique(): 
+            country_name = str(country_name_str) # Ensure string for name
+            # country_data_for_trace will be sorted by year due to the initial sort of data_sorted
+            country_data_for_trace = data_sorted[data_sorted['plot_group'] == country_name]
+
+            if country_data_for_trace.empty:
+                continue
+            
+            # Assuming plot_color is consistent for the entire group (country)
+            color = None
+            if 'plot_color' in country_data_for_trace.columns and not country_data_for_trace.empty:
+                # Take the first available color for this country
+                first_valid_color = country_data_for_trace['plot_color'].dropna()
+                if not first_valid_color.empty:
+                    color = first_valid_color.iloc[0]
+            
+            fig.add_trace(go.Scatter(
+                x=country_data_for_trace['year'],
+                y=country_data_for_trace[value_column],
+                mode='lines+markers',
+                name=country_name,
+                line=dict(color=color if color else None), # Plotly will assign a color if None
+                hovertemplate=(
+                    f"<b>{country_name}</b><br>" +
+                    "Year: %{x}<br>" +
+                    f"Contribution: %{{y:.2f}}%<extra></extra>"
+                )
+            ))
+    elif mode == "find_collaborations":
+        plot_title = "Collaboration Trends"
+        show_legend_for_plot = False # Hide legend for collaboration mode
+        
+        collab_type_colors = {
+            "Bilateral": "rgba(255, 127, 14, 0.9)",
+            "Trilateral": "rgba(44, 160, 44, 0.9)",
+            "4-country": "rgba(214, 39, 40, 0.9)",
+            "5-country+": "rgba(148, 103, 189, 0.9)",
+            "Unknown": "rgba(127, 127, 127, 0.9)"
+        }
+
+        for collab_id_str in data_sorted['plot_group'].unique(): 
+            collab_id = str(collab_id_str) # Ensure string for name
+            # collab_data_for_trace will be sorted by year
+            collab_data_for_trace = data_sorted[data_sorted['plot_group'] == collab_id]
+
+            if collab_data_for_trace.empty:
+                continue
+            
+            # Assuming plot_color_group is consistent for the entire group (collaboration)
+            collab_type = "Unknown"
+            if 'plot_color_group' in collab_data_for_trace.columns and not collab_data_for_trace.empty:
+                first_valid_type = collab_data_for_trace['plot_color_group'].dropna()
+                if not first_valid_type.empty:
+                    collab_type = str(first_valid_type.iloc[0])
+
+            fig.add_trace(go.Scatter(
+                x=collab_data_for_trace['year'],
+                y=collab_data_for_trace[value_column],
+                mode='lines+markers',
+                name=collab_id, # Name is kept for hover data, even if legend is hidden
+                showlegend=False, 
+                line=dict(color=collab_type_colors.get(collab_type, collab_type_colors["Unknown"])),
+                hovertemplate=(
+                    f"<b>Collaboration: {collab_id}</b> ({collab_type})<br>" +
+                    "Year: %{x}<br>" +
+                    f"Contribution: %{{y:.2f}}%<extra></extra>"
+                )
+            ))
+    
+    fig.update_layout(
+        title=plot_title,
+        xaxis_title="Year",
+        yaxis_title="New Substances",
+        yaxis=dict(
+            ticksuffix='%',
+            fixedrange=True
+        ),
+        hovermode='closest', # Changed from 'x unified' to 'closest' for better individual point hovering
+        template='plotly_white',
+        modebar_remove=['zoom', 'pan', 'lasso', 'select', 'zoomIn', 'zoomOut', 'autoScale'],
+        showlegend=show_legend_for_plot # Control overall legend visibility
+    )
+    
+    return fig
+
 
 def create_summary_table(data: pd.DataFrame, display_mode: str) -> pd.DataFrame:
     """
@@ -513,6 +623,46 @@ def calculate_top_contributors(
     return top_data[['rank', 'iso2c', 'country', 'percentage']].rename(
         columns={'percentage': 'avg_percentage'}
     )
+
+def create_article_plot(data: pd.DataFrame, title: str):
+    """Create article plots"""
+    fig = go.Figure()
+    
+    for country in data['country'].unique():
+        country_data = data[data['country'] == country]
+        color = country_data['cc'].iloc[0] if 'cc' in country_data.columns and not country_data.empty else None
+        fig.add_trace(go.Scatter(
+            x=country_data['year'],
+            y=country_data['value'],
+            mode='lines+markers',
+            name=country,
+            line=dict(color=color, width=1) if color else dict(width=1),
+            marker=dict(size=country_data['value'].abs().clip(lower = 1, upper=10), opacity=0.3, color=color if color else 'red')
+        ))
+    
+    fig.update_layout(
+        # title=f"{title}",
+        # xaxis_title="Year",
+        yaxis_title="New Substances",
+        yaxis = dict(
+            ticksuffix='%',
+            fixedrange = True
+        ),
+        xaxis = dict(
+            fixedrange = True
+        ),
+        template='plotly_white',
+        showlegend=True,
+        legend=dict(
+            orientation="h", 
+            y=-0.2,
+            traceorder="reversed"  # Display in same order as traces
+        ),
+        hovermode='x unified',
+        modebar_remove=['zoom', 'pan', 'lasso', 'select', 'zoomIn', 'zoomOut', 'autoScale', 'resetScale']
+    )
+    
+    return fig
 
 def create_article_plot_simple(
     article_df: pd.DataFrame,
@@ -660,4 +810,630 @@ def create_top_collabs_plot(top_collab_data: pd.DataFrame, title: str = "Collabo
     
     return fig
 
+def create_top_trends_plot(data: pd.DataFrame, title: str):
+    """Create top contributors/collaborations plot"""
+    fig = go.Figure()
+    
+    # Calculate the average percentage for each entity to sort the legend
+    avg_percentages = data.groupby('country')['percentage'].mean().sort_values(ascending=True)
+    
+    # Plot entities in order of their average percentage (highest first)
+    for entity in avg_percentages.index:
+        entity_data = data[data['country'] == entity]
+        # Ensure entity data is sorted by year for proper line drawing
+        entity_data = entity_data.sort_values('year')
+        
+        avg_value = avg_percentages[entity]
+        
+        fig.add_trace(go.Scatter(
+            x=entity_data['year'],
+            y=entity_data['percentage'],
+            mode='lines+markers',
+            name=f"{entity} ({avg_value:.2f}%)",  # Include avg in legend
+            line=dict(width=1.5),
+            marker=dict(color=entity_data['cc'].iloc[0] if 'cc' in entity_data.columns and not entity_data.empty else 'red'),
+            hovertemplate=(
+                "<b>%{fullData.name}</b><br>" +
+                "Year: %{x}<br>" +
+                "Contribution: %{y:.2f}%<extra></extra>"
+            )
+        ))
+    
+    fig.update_layout(
+        # title=title,
+        # xaxis_title="Year", 
+        yaxis_title="New Substances",
+        yaxis = dict(
+            ticksuffix='%',
+            fixedrange=True
+        ),
+        template='plotly_white',
+        showlegend=True,
+        legend=dict(
+            # title="Top Contributors",
+            # text = "Sorted by Avg Contribution",
+            orientation="h", 
+            y=-0.2,
+            traceorder="reversed"  # Display in same order as traces
+        ),
+        hovermode='closest',
+        modebar_remove=['zoom', 'pan', 'lasso', 'select', 'zoomIn', 'zoomOut', 'autoScale']
+    )
+    
+    return fig
 
+def create_folium_map(country_list: pd.DataFrame, selected_countries: List[str]) -> folium.Map:
+    """Create interactive Folium map with improved region handling"""
+    
+    # Determine map center based on filtered countries
+    if not country_list.empty:
+        center_lat = country_list['lat'].mean()
+        center_lng = country_list['lng'].mean()
+        
+        # Adjust zoom based on region spread
+        lat_range = country_list['lat'].max() - country_list['lat'].min()
+        lng_range = country_list['lng'].max() - country_list['lng'].min()
+        
+        # Determine appropriate zoom level
+        if lat_range > 60 or lng_range > 120:  # Global view
+            zoom_start = 2
+        elif lat_range > 30 or lng_range > 60:  # Continental view
+            zoom_start = 3
+        elif lat_range > 15 or lng_range > 30:  # Regional view
+            zoom_start = 4
+        else:  # Local view
+            zoom_start = 5
+    else:
+        center_lat, center_lng, zoom_start = 30, 10, 2
+    
+    m = folium.Map(location=[center_lat, center_lng], zoom_start=zoom_start)
+    
+    # Add region info to map title
+    if len(country_list) > 0:
+        regions_in_map = country_list['region'].unique()
+        if len(regions_in_map) == 1 and regions_in_map[0] != 'Other':
+            map_title = f"Region: {regions_in_map[0]} ({len(country_list)} countries)"
+        else:
+            map_title = f"Showing {len(country_list)} countries"
+        
+        # Add a subtle title overlay
+        title_html = f'''
+        <div style="position: fixed; 
+                    top: 10px; left: 50px; width: 300px; height: 30px; 
+                    background-color: rgba(255, 255, 255, 0.8);
+                    border: 2px solid rgba(0,0,0,0.2);
+                    border-radius: 5px;
+                    z-index:9999; 
+                    font-size:12px;
+                    font-weight: bold;
+                    text-align: center;
+                    padding: 5px;">
+            {map_title}
+        </div>
+        '''
+        m.get_root().html.add_child(folium.Element(title_html))
+    
+    # Load world geometries for better country shapes
+    try:
+        world_path = "./data/world_boundaries.geojson"
+        world = gpd.read_file(world_path)
+        
+        iso_column = None
+        for possible_col in ['iso_a2', 'ISO_A2', 'iso2c', 'ISO2C']:
+            if possible_col in world.columns:
+                iso_column = possible_col
+                break
+        
+        if iso_column is None:
+            print("Warning: No ISO column found in GeoJSON. Available columns:", world.columns.tolist())
+            raise FileNotFoundError("No suitable ISO column found")
+        
+        # Add countries to map
+        for _, country_row in country_list.iterrows():
+            iso = country_row['iso2c']
+            country_name = country_row['country']
+            region = country_row.get('region', 'Unknown')
+            
+            # Enhanced color scheme
+            if iso in selected_countries:
+                color = country_row['cc']  # Use country color when selected
+                fill_opacity = 0.8
+                stroke_weight = 2
+            else:
+                color = "#a1b4af",  # Default color for unselected countries
+                fill_opacity = 0.5
+                stroke_weight = 1
+            
+            country_geo = world[world[iso_column] == iso]
+            
+            if not country_geo.empty:
+                # Enhanced popup with region info
+                popup_html = f"""
+                <div style="min-width: 200px;">
+                    <h4 style="margin: 0 0 10px 0; color: #2c3e50;">
+                        {country_name} ({iso})
+                    </h4>
+                    <p style="margin: 5px 0; color: #7f8c8d;">
+                        <strong>Region:</strong> {region}
+                    </p>
+                    <p style="margin: 5px 0; color: #7f8c8d;">
+                        <strong>Status:</strong> 
+                        {'Selected' if iso in selected_countries else 'Available'}
+                    </p>
+                    <button onclick="
+                        if (window.parent && window.parent.Shiny) {{
+                            window.parent.Shiny.setInputValue('map_click_iso', '{iso}', {{priority: 'event'}});
+                        }} else if (window.Shiny) {{
+                            window.Shiny.setInputValue('map_click_iso', '{iso}', {{priority: 'event'}});
+                        }}
+                    " style="
+                        padding: 8px 16px; 
+                        margin: 10px 0 5px 0; 
+                        cursor: pointer;
+                        background-color: {'#e74c3c' if iso in selected_countries else '#3498db'};
+                        color: white;
+                        border: none;
+                        border-radius: 4px;
+                        font-weight: bold;
+                        width: 100%;
+                    ">
+                        {'🗑️ Deselect' if iso in selected_countries else '✅ Select'}
+                    </button>
+                </div>
+                """
+                
+                folium.GeoJson(
+                    country_geo.iloc[0].geometry,
+                    style_function=lambda x, color=color, fill_opacity=fill_opacity, weight=stroke_weight: {
+                        'fillColor': color,
+                        'color': 'white',
+                        'weight': weight,
+                        'fillOpacity': fill_opacity,
+                        'dashArray': '0' if iso in selected_countries else '5, 5'
+                    },
+                    tooltip=folium.Tooltip(
+                        f"<b>{country_name}</b><br>Region: {region}<br>Click to {'deselect' if iso in selected_countries else 'select'}",
+                        sticky=True
+                    ),
+                    popup=folium.Popup(popup_html, max_width=250)
+                ).add_to(m)
+            else:
+                # Enhanced fallback markers
+                popup_html = f"""
+                <div style="min-width: 180px;">
+                    <h4 style="margin: 0 0 10px 0; color: #2c3e50;">
+                        {country_name} ({iso})
+                    </h4>
+                    <p style="margin: 5px 0; color: #7f8c8d;">
+                        <strong>Region:</strong> {region}
+                    </p>
+                    <button onclick="
+                        if (window.parent && window.parent.Shiny) {{
+                            window.parent.Shiny.setInputValue('map_click_iso', '{iso}', {{priority: 'event'}});
+                        }} else if (window.Shiny) {{
+                            window.Shiny.setInputValue('map_click_iso', '{iso}', {{priority: 'event'}});
+                        }}
+                    " style="
+                        padding: 8px 16px; 
+                        margin: 10px 0 5px 0; 
+                        cursor: pointer;
+                        background-color: {'#e74c3c' if iso in selected_countries else '#3498db'};
+                        color: white;
+                        border: none;
+                        border-radius: 4px;
+                        font-weight: bold;
+                        width: 100%;
+                    ">
+                        {'🗑️ Deselect' if iso in selected_countries else '✅ Select'}
+                    </button>
+                </div>
+                """
+                
+                folium.CircleMarker(
+                    location=[country_row['lat'], country_row['lng']],
+                    radius=8 if iso in selected_countries else 5,
+                    color=color,
+                    fill=True,
+                    fill_color=color,
+                    fill_opacity=fill_opacity,
+                    weight=stroke_weight,
+                    popup=folium.Popup(popup_html, max_width=220),
+                    tooltip=folium.Tooltip(
+                        f"<b>{country_name}</b><br>Region: {region}",
+                        sticky=True
+                    )
+                ).add_to(m)
+                
+    except Exception as e:
+        print(f"Error loading GeoJSON: {e}")
+        # Enhanced fallback to markers with region info
+        for _, country in country_list.iterrows():
+            iso = country['iso2c']
+            country_name = country['country']
+            region = country.get('region', 'Unknown')
+            
+            if iso in selected_countries:
+                color = country['cc']
+                radius = 8
+                fill_opacity = 0.8
+            else:
+                color = 'lightblue'
+                radius = 5
+                fill_opacity = 0.5
+            
+            popup_html = f"""
+            <div style="min-width: 180px;">
+                <h4 style="margin: 0 0 10px 0; color: #2c3e50;">
+                    {country_name} ({iso})
+                </h4>
+                <p style="margin: 5px 0; color: #7f8c8d;">
+                    <strong>Region:</strong> {region}
+                </p>
+                <button onclick="
+                    if (window.parent && window.parent.Shiny) {{
+                        window.parent.Shiny.setInputValue('map_click_iso', '{iso}', {{priority: 'event'}});
+                    }} else if (window.Shiny) {{
+                        window.Shiny.setInputValue('map_click_iso', '{iso}', {{priority: 'event'}});
+                    }}
+                " style="
+                    padding: 8px 16px; 
+                    margin: 10px 0 5px 0; 
+                    cursor: pointer;
+                    background-color: {'#e74c3c' if iso in selected_countries else '#3498db'};
+                    color: white;
+                    border: none;
+                    border-radius: 4px;
+                    font-weight: bold;
+                    width: 100%;
+                ">
+                    {'🗑️ Deselect' if iso in selected_countries else '✅ Select'}
+                </button>
+            </div>
+            """
+            
+            folium.CircleMarker(
+                location=[country['lat'], country['lng']],
+                radius=radius,
+                color=color,
+                fill=True,
+                fill_color=color,
+                fill_opacity=fill_opacity,
+                popup=folium.Popup(popup_html, max_width=220),
+                tooltip=folium.Tooltip(
+                    f"<b>{country_name}</b><br>Region: {region}",
+                    sticky=True
+                )
+            ).add_to(m)
+    
+    return m
+
+
+def create_contribution_choropleth(data: pd.DataFrame):
+    """Create world choropleth map with proper color scaling"""
+    value_column = 'total_percentage'
+
+    if value_column not in data.columns or data.empty:
+        return create_empty_plot("No data available for choropleth")
+    
+    # Calculate average percentage per country
+    avg_data = (
+        data.groupby(['iso3c', 'country'], as_index=False)
+        .agg({
+            'total_percentage': 'mean',
+            'region': 'first'
+        })
+        .round(2)
+    )
+    
+    if avg_data.empty:
+        return create_empty_plot("No aggregated data for choropleth")
+
+    # Ensure we have valid data for plotting
+    avg_data = avg_data.dropna(subset=['total_percentage'])
+    
+    if avg_data.empty:
+        return create_empty_plot("No valid data after removing NaN values")
+
+    # Create choropleth with explicit color range
+    min_val = avg_data['total_percentage'].min()
+    max_val = avg_data['total_percentage'].max()
+    
+    # Handle case where all values are the same
+    if min_val == max_val:
+        color_range = [max(0, min_val - 0.1), min_val + 0.1]
+    else:
+        color_range = [min_val, max_val]
+
+    fig = go.Figure(data=go.Choropleth(
+        locations=avg_data['iso3c'],
+        z=avg_data['total_percentage'],
+        locationmode='ISO-3',
+        colorscale='Viridis',
+        # colorscale=[[0, 'rgb(10, 49, 97)'], [1, 'rgb(238, 28, 37)']],
+        reversescale=False,
+        zmid=None,  # Let plotly handle the midpoint
+        zmin=color_range[0],
+        zmax=color_range[1],
+        # legendwidth = 20,
+        hovertemplate=(
+            "<b>%{customdata[0]}</b> (%{location})<br>" +
+            "Avg Contribution: %{z:.2f}%<br>" +
+            "Region: %{customdata[1]}<extra></extra>"
+        ),
+        customdata=avg_data[['country', 'region']].values,
+        colorbar=dict(
+            title="Avg. Contribution",
+            orientation = "h",
+            # tickangle =0,
+            # tickformat = ".2f",
+            ticklabelstep = 4,
+            ticksuffix = "%",
+            # titleside="right",
+            tickmode="linear",
+            # xanchor ='right',
+            # yanchor ='bottom',
+            tick0=color_range[0],
+            dtick=max(0.5, (color_range[1] - color_range[0]) / 10)
+        ),
+        showscale=True
+    ))
+    
+    fig.update_layout(
+        geo=dict(
+            showframe=False,
+            showcoastlines=True,
+            coastlinecolor="lightgray",
+            projection_type='robinson',
+            bgcolor='rgba(0,0,0,0)',
+            showlakes=True,
+            lakecolor='rgba(127,205,255,0.1)'
+        ),
+        template='plotly_white',
+        height=500,
+        margin=dict(l=20, r=20, t=60, b=20),
+        modebar_remove=['zoom', 'pan', 'lasso', 'select']
+    )
+    
+    return fig
+
+def create_summary_dataframe(data: pd.DataFrame, mode: str) -> pd.DataFrame:
+    """Create summary statistics table"""
+    value_column = 'total_percentage' # Expect this from get_display_data
+
+    if value_column not in data.columns or data.empty:
+        return pd.DataFrame({'Error': [f"Missing '{value_column}' column or no data for summary."]})
+    
+    if mode == "find_collaborations":
+        required_cols = ['plot_group', 'chemical', 'collab_type', value_column]
+        if not all(col in data.columns for col in required_cols):
+            missing = [col for col in required_cols if col not in data.columns]
+            return pd.DataFrame({'Error': [f"Summary data for collaborations missing: {missing}"]})
+        
+        summary = (
+            data.groupby(['plot_group', 'chemical', 'collab_type'])
+            .agg(
+                avg_percentage=(value_column, 'mean'),
+                max_percentage=(value_column, 'max'),
+                years_present=('year', 'nunique') # Count distinct years
+            )
+            .round(2)
+            .reset_index()
+        )
+        summary.columns = ['Collaboration', 'Chemical', 'Type', 'Avg %', 'Max %', 'Years Present']
+    elif mode == "compare_individuals":
+        required_cols = ['country', 'iso2c', 'chemical', value_column]
+        if not all(col in data.columns for col in required_cols):
+            missing = [col for col in required_cols if col not in data.columns]
+            return pd.DataFrame({'Error': [f"Summary data for individuals missing: {missing}"]})
+
+        summary = (
+            data.groupby(['country', 'iso2c', 'chemical'])
+            .agg(
+                avg_percentage=(value_column, 'mean'),
+                max_percentage=(value_column, 'max'),
+                years_present=('year', 'nunique') # Count distinct years
+            )
+            .round(2)
+            .reset_index()
+        )
+        summary.columns = ['Country', 'ISO', 'Chemical', 'Avg %', 'Max %', 'Years Present']
+    else:
+        return pd.DataFrame({'Message': [f"Summary not available for display mode: {mode}"]})
+        
+    return summary
+
+def create_gdp_plot(data: pd.DataFrame):
+    """Create GDP article plot with annotations for economic events"""
+    fig = go.Figure()
+    
+    for country in data['country'].unique():
+        country_data = data[data['country'] == country]
+        fig.add_trace(go.Scatter(
+            x=country_data['year'],
+            y=country_data['value'],
+            mode='lines+markers',
+            name=country,
+            line=dict(width=2),
+            marker=dict(size=country_data['value'].abs().clip(upper=15) + 2, color=country_data['cc'].iloc[0] if 'cc' in country_data.columns and not country_data.empty else 'red')
+        ))
+    
+    # Add vertical lines and annotations for economic events
+    fig.add_vline(x=2007.5, line_dash="dash", line_color="grey")
+    fig.add_vline(x=2019.5, line_dash="dash", line_color="grey")
+    
+    # Calculate y-position for annotations based on data
+    if fig.data:
+        max_val = max([max(trace['y']) for trace in fig.data])
+        fig.add_annotation(
+            x=2007.5, 
+            y=max_val * 0.9,
+            text="Financial Crisis", 
+            showarrow=True,
+            arrowhead=1
+        )
+        fig.add_annotation(
+            x=2019.5, 
+            y=max_val * 0.8,
+            text="COVID-19", 
+            showarrow=True,
+            arrowhead=1
+        )
+    
+    fig.update_layout(
+        yaxis_title="GDP Growth Rate",
+        template='plotly_white',
+        yaxis = dict(
+            ticksuffix='%',
+            fixedrange=True
+        ),
+        showlegend=True,
+        legend=dict(
+            orientation="h", 
+            y=-0.2,
+            traceorder="reversed"  # Display in same order as traces
+        ),
+        hovermode='x unified',
+        modebar_remove=['zoom', 'pan', 'lasso', 'select', 'zoomIn', 'zoomOut', 'autoScale']
+    )
+    
+    return fig
+
+def create_researchers_plot(data: pd.DataFrame):
+    """Create researchers plot with values in millions"""
+    fig = go.Figure()
+    
+    for country in data['country'].unique():
+        country_data = data[data['country'] == country]
+        scaled_values = country_data['value'] / 1e6  # Convert to millions
+        
+        fig.add_trace(go.Scatter(
+            x=country_data['year'],
+            y=scaled_values,
+            mode='lines+markers',
+            name=country,
+            line=dict(width=2),
+            marker=dict(size=scaled_values.abs().clip(lower=1, upper=15) + 2, color=country_data['cc'].iloc[0] if 'cc' in country_data.columns and not country_data.empty else 'red')
+        ))
+    
+    fig.update_layout(
+        yaxis_title="Number of Researchers (Millions)",
+        yaxis = dict(
+            ticksuffix= 'M',
+            fixedrange = True
+            # tickformat = ',.0f'  # Format as whole numbers
+        ),
+        template='plotly_white',
+        showlegend=True,
+        legend=dict(
+            orientation="h", 
+            y=-0.2,
+            traceorder="reversed"  # Display in same order as traces
+        ),
+        hovermode='x unified',
+        modebar_remove=['zoom', 'pan', 'lasso', 'select', 'zoomIn', 'zoomOut', 'autoScale']
+    )
+    
+    return fig
+
+def create_cs_expansion_plot(data: pd.DataFrame):
+    """Create chemical space expansion plot"""
+    fig = go.Figure()
+    
+    for country in data['country'].unique():
+        country_data = data[data['country'] == country]
+        fig.add_trace(go.Scatter(
+            x=country_data['year'],
+            y=country_data['value'],
+            mode='lines',
+            name=country,
+            line=dict(width=2),
+            # marker=dict(size=6)
+        ))
+    
+    fig.update_layout(
+        yaxis_title="Number of New Substances",
+        template='plotly_white',
+        yaxis = dict(
+            fixedrange = True
+        ),
+        showlegend=True,
+        legend=dict(
+            orientation="h", 
+            y=-0.2,
+            traceorder="reversed"  # Display in same order as traces
+        ),
+        hovermode='x unified',
+        modebar_remove=['zoom', 'pan', 'lasso', 'select', 'zoomIn', 'zoomOut', 'autoScale']
+    )
+    
+    return fig
+
+def create_china_us_dual_axis_plot(data: pd.DataFrame):
+    """
+    Create a dual-axis plot for China-US comparison in the Chemical Space.
+    Plots "United States" and "China" on the primary y-axis,
+    and "CN-US collab/US" and "CN-US collab/CN" on the secondary y-axis.
+    """
+    fig = go.Figure()
+
+    primary_yaxis_categories = ["United States", "China"]
+    secondary_yaxis_categories = ["CN-US collab/US", "CN-US collab/CN"]
+
+    # Define colors for clarity
+    # You can customize these colors
+    colors = {
+        "United States": "blue",
+        "China": "red",
+        "CN-US collab/US": "lightblue",
+        "CN-US collab/CN": "salmon"
+    }
+
+    for country_name in data['country'].unique():
+        country_data = data[data['country'] == country_name]
+        
+        trace_params = {
+            'x': country_data['year'],
+            'y': country_data['value'],
+            'mode': 'lines+markers', # Added markers for better visibility of points
+            'name': country_name,
+            'line': dict(width=2, color=colors.get(country_name)),
+            'marker': dict(size=6, color=colors.get(country_name)) # Added markers
+        }
+
+        if country_name in secondary_yaxis_categories:
+            trace_params['yaxis'] = 'y2'
+        
+        fig.add_trace(go.Scatter(**trace_params))
+
+    fig.update_layout(
+        # title_text="China-US Contributions & Collaboration Impact",
+        # xaxis_title="Year",
+        yaxis=dict(
+            title_text="National Contribution to the National share of the CS", # Adjust title as per your data's meaning
+            ticksuffix= '%', 
+            fixedrange=True,
+            # titlefont=dict(color=colors.get("China")) # Optional: color primary axis title
+        ),
+        yaxis2=dict(
+            title_text="China-US Contribution to the National share of the CS", # Adjust title
+            overlaying='y',
+            side='right',
+            ticksuffix= '%',
+            fixedrange=True,
+            # titlefont=dict(color=colors.get("CN-US collab/US")) # Optional: color secondary axis title
+            # rangemode='tozero' # Or 'normal', depending on data
+        ),
+        template='plotly_white',
+        showlegend=True,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        ),
+        hovermode='x unified',
+        modebar_remove=['zoom', 'pan', 'lasso', 'select', 'zoomIn', 'zoomOut', 'autoScale']
+    )
+    
+    return fig
