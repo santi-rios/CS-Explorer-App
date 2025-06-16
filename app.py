@@ -95,9 +95,9 @@ def create_app():
 
     app_ui = ui.page_navbar(
                 ui.nav_panel(
-                    "Dashboard", # This will be the main landing page
+                    "Dashboard", 
                     ui.div(
-                        # --- Section 1: Article Highlights ---
+                        # --- Introductory Section ---
                         ui.h3("China's Rise in the Chemical Space (CS)", style="text-align: center; margin-bottom: 20px; margin-top: 20px;"),
                         ui.p(
                             "Explore the rise of China's influence in the chemical space and the decline of US dominance through interactive visualizations.",
@@ -123,146 +123,147 @@ def create_app():
                             ),
                             style="text-align: center; margin-bottom: 30px;"
                         ),
-                        
-                        # First set of plots (Main Countries, GDP, Researchers) in a tabset
-                        ui.row(
-                            ui.column(12, 
-                                      # Add a subtle border and padding to this group
-                                      ui.div(
-                                          ui.h4("📊 Key Article Figures", style="text-align: center; margin-top: 0;"),
-                                          ui.navset_card_tab(
-                                              ui.nav_panel(
-                                                  "🏆 Main Countries",
-                                                  ui.card(
-                                                      ui.p("Main countries contributing to the chemical space (CS) from 1996 to 2022. Explore more countries and the chemical space interactively below."),
-                                                      output_widget("country_cs_plot"),
-                                                      ui.p("Hide a Country by clicking on its name in the legend. Double-click to isolate it."),
-                                                        style="margin-top: 10px; font-size: 0.9em; color: #666; text-align: center;"
-                                                  )
+                    ), # End of Introductory Section
+                    
+                    # --- Tabbed Main Content ---
+                    ui.navset_card_tab(
+                        ui.nav_panel(
+                            "📊 Key Article Figures",
+                            # Content from former "Section 1: Article Highlights" (Key Article Figures)
+                            ui.row(
+                                ui.column(12, 
+                                          ui.div(
+                                              # The H4 title is now part of the tab name
+                                              ui.navset_card_tab(
+                                                  ui.nav_panel(
+                                                      "🏆 Main Countries",
+                                                      ui.card(
+                                                          ui.p("Main countries contributing to the chemical space (CS) from 1996 to 2022. Explore more countries and the chemical space interactively below."),
+                                                          output_widget("country_cs_plot"),
+                                                          ui.p("Hide a Country by clicking on its name in the legend. Double-click to isolate it.",
+                                                                style="margin-top: 10px; font-size: 0.9em; color: #666; text-align: center;")
+                                                      )
+                                                  ),
+                                                  ui.nav_panel(
+                                                      "🥼China-US",
+                                                      ui.card(
+                                                          ui.p("Percentage of new substances with participation of China or the US resulting from China-US collaboration (right axis). Left axis show the percentage of new substances with participation of country (China or US) that are reported in papers with no international collaboration."),
+                                                          output_widget("china_us_plot"),
+                                                          style="margin-top: 10px; font-size: 0.9em; color: #666; text-align: center;"
+                                                      )
+                                                  ),
+                                                  ui.nav_panel(
+                                                      "💰 GDP and growth",
+                                                      ui.card(
+                                                          ui.p("Percentage of the annual growth rate of the gross domestic product (GDP) per capita"),
+                                                          output_widget("article_gdp_plot")
+                                                      )
+                                                  ),
+                                                  ui.nav_panel(
+                                                      "👥 Number of Researchers",
+                                                      ui.card(
+                                                          ui.p("Number of researchers in research and development activities"),
+                                                          output_widget("article_researchers_plot")
+                                                      )
+                                                  ),
+                                                  ui.nav_panel(
+                                                      "🧪 Chemical Space Expansion",
+                                                      ui.card(
+                                                          ui.p("Recent expansion of the CS and of three of its subspaces"),
+                                                          output_widget("article_cs_expansion_plot")
+                                                      )
+                                                  ),
                                               ),
-                                                ui.nav_panel(
-                                                    "🥼China-US",
-                                                    ui.card(
-                                                        ui.p("Percentage of new substances with participation of China or the US resulting from China-US collaboration (right axis). Left axis show the percentage of new substances with participation of country (China or US) that are reported in papers with no international collaboration."),
-                                                        output_widget("china_us_plot"),
-                                                        style="margin-top: 10px; font-size: 0.9em; color: #666; text-align: center;"
-                                                    )
-                                                ),
-                                              ui.nav_panel(
-                                                  "💰 GDP and growth",
-                                                  ui.card(
-                                                      ui.p("Percentage of the annual growth rate of the gross domestic product (GDP) per capita"),
-                                                      output_widget("article_gdp_plot")
-                                                  )
-                                              ),
-                                              ui.nav_panel(
-                                                  "👥 Number of Researchers",
-                                                  ui.card(
-                                                      ui.p("Number of researchers in research and development activities"),
-                                                      output_widget("article_researchers_plot")
-                                                  )
-                                              ),
-                                              ui.nav_panel(
-                                                  "🧪 Chemical Space Expansion",
-                                                  ui.card(
-                                                      ui.p("Recent expansion of the CS and of three of its subspaces"),
-                                                      output_widget("article_cs_expansion_plot")
-                                                  )
-                                              ),
-                                          ),
-                                          style="border: 1px solid #dee2e6; border-radius: .25rem; padding: 15px; background-color: #f8f9fa;"
-                                      )
+                                              style="border: 1px solid #dee2e6; border-radius: .25rem; padding: 15px; background-color: #f8f9fa; margin-top: 20px;" # Added margin-top
+                                          )
+                                )
                             )
                         ),
-                        
-                        # Top Collaborations plot - distinct card
-                        ui.row(
-                            ui.column(12, 
-                                      # Using panel_well for a slightly inset and different background
-                                      ui.panel_well(
-                                          ui.h4("🤝 Explore Top Collaborations and Countries in the CS", style="margin-top: 0; text-align: center;"), # Centered H4 instead of card_header
-                                          ui.row( # Filters for this specific plot
-                                              ui.column(6, ui.input_select("top_collabs_chem_filter", "Chemical Space Category:", choices=initial_data['chemical_categories'], selected="All")),
-                                              ui.column(6, ui.input_radio_buttons("top_data_type_filter", "Show Top:", choices={"collabs": "Collaborations", "individuals": "Countries"}, selected="collabs"))
-                                          ),
-                                          output_widget("article_top_collabs_plot"),
-                                          ui.p("Legend is sorted by the average contribution (shown in parenthesis) of the collaboration/country to the CS between 1996 to 2022.",
-                                              style="font-size: 0.9em; color: #666; text-align: center;"),
-                                          class_="border rounded p-3 bg-light", # Bootstrap classes for styling
-                                          style="margin-top: 20px; margin-bottom: 20px;" # Add some vertical margin
-                                      )
+                        ui.nav_panel(
+                            "🤝 Top Trends",
+                            # Content from former "Top Collaborations plot" section
+                            ui.row(
+                                ui.column(12, 
+                                          ui.panel_well(
+                                              ui.h4("Explore Top Collaborations and Countries in the CS", style="margin-top: 0; text-align: center;"),
+                                              ui.row( 
+                                                  ui.column(6, ui.input_select("top_collabs_chem_filter", "Chemical Space Category:", choices=initial_data['chemical_categories'], selected="All")),
+                                                  ui.column(6, ui.input_radio_buttons("top_data_type_filter", "Show Top:", choices={"collabs": "Collaborations", "individuals": "Countries"}, selected="collabs"))
+                                              ),
+                                              output_widget("article_top_collabs_plot"),
+                                              ui.p("Legend is sorted by the average contribution (shown in parenthesis) of the collaboration/country to the CS between 1996 to 2022.",
+                                                  style="font-size: 0.9em; color: #666; text-align: center;"),
+                                              class_="border rounded p-3 bg-light", 
+                                              style="margin-top: 20px; margin-bottom: 20px;"
+                                          )
+                                )
                             )
                         ),
-                        
-                        # Separator
-                        ui.hr(style="margin-top: 40px; margin-bottom: 40px; border-top: 3px dashed #007bff; opacity: 0.5;"),
-
-                        # --- Section 2: Explore Chemical Space ---
-                        ui.h3("Explore Chemical Space Interactively", style="text-align: center; margin-bottom: 20px;"),
-                        ui.p(
-                            "Dive into the interactive map to visualize the chemical space contributions of different countries. Use the filters (click on the arrow > to the top-left of the map) to limit the year range, regions, CS or clear your current selection.",
-                            style="text-align: center; margin-bottom: 30px; font-size: 1.1em; color: #555;"
-                        ),
-                        
-                        # Card for the Interactive Map, with its own internal sidebar
-                        ui.card(
-                            ui.card_header("🗺️ Interactive Chemical Space Map"),
-                            ui.layout_sidebar(
-                                ui.sidebar(
-                                    ui.h5("⚙️ Filters & Options"),
-                                    ui.input_select(
-                                        "region_filter", "🌍 Filter by Region:",
-                                        choices=initial_data['regions'], selected="All"
-                                    ),
-                                    ui.input_slider(
-                                        "years", "📅 Year Range:",
-                                        min=initial_data['min_year'], max=initial_data['max_year'],
-                                        value=[initial_data['min_year'], initial_data['max_year']],
-                                        step=1, sep=""
-                                    ),
-                                    ui.input_select(
-                                        "chemical_category", "🧪 Chemical Space:",
-                                        choices=initial_data['chemical_categories'], selected="All"
-                                    ),
-                                    ui.div(
-                                        ui.input_action_button(
-                                            "clear_selection", "🗑️ Clear Selection",
-                                            class_="btn-outline-danger w-100"
-                                        ),
-                                        ui.div(ui.output_text("selection_info"), class_="mt-2 text-muted small")
-                                    ),
-                                    open = "closed", # Consider if this should be open by default
-                                    width=220 
-                                ),
-                                # Main content for the map within its layout_sidebar
-                                ui.output_ui("map_output")
+                        ui.nav_panel(
+                            "🗺️ Interactive Explorer",
+                            # Content from former "Section 2: Explore Chemical Space"
+                            ui.h3("Explore Chemical Space Interactively", style="text-align: center; margin-bottom: 20px; margin-top: 20px;"),
+                            ui.p(
+                                "Dive into the interactive map to visualize the chemical space contributions of different countries. Use the filters (click on the arrow > to the top-left of the map) to limit the year range, regions, CS or clear your current selection.",
+                                style="text-align: center; margin-bottom: 30px; font-size: 1.1em; color: #555;"
                             ),
-                            # Add a class for potential further specific styling
-                            class_="mb-3" # Bootstrap margin-bottom class
-                        ),
-                        ui.input_radio_buttons(
-                                        "display_mode_input", "📊 Display Mode:",
-                                        choices={
-                                            "compare_individuals": "Individual Countries",
-                                            "find_collaborations": "Find Collaborations (select at least 2 countries)"
-                                        },
-                                        inline=True,
-                                        selected="compare_individuals"
+                            ui.card(
+                                ui.card_header("Interactive Chemical Space Map"), # Simplified header
+                                ui.layout_sidebar(
+                                    ui.sidebar(
+                                        ui.h5("⚙️ Filters & Options"),
+                                        ui.input_select(
+                                            "region_filter", "🌍 Filter by Region:",
+                                            choices=initial_data['regions'], selected="All"
+                                        ),
+                                        ui.input_slider(
+                                            "years", "📅 Year Range:",
+                                            min=initial_data['min_year'], max=initial_data['max_year'],
+                                            value=[initial_data['min_year'], initial_data['max_year']],
+                                            step=1, sep=""
+                                        ),
+                                        ui.input_select(
+                                            "chemical_category", "🧪 Chemical Space:",
+                                            choices=initial_data['chemical_categories'], selected="All"
+                                        ),
+                                        ui.div(
+                                            ui.input_action_button(
+                                                "clear_selection", "🗑️ Clear Selection",
+                                                class_="btn-outline-danger w-100"
+                                            ),
+                                            ui.div(ui.output_text("selection_info"), class_="mt-2 text-muted small")
+                                        ),
+                                        open = "closed", 
+                                        width=220 
                                     ),
-                        # Trends and Data Table, now outside the map's sidebar layout
-                        ui.navset_card_tab( 
-                            ui.nav_panel("📈 Trends", output_widget("main_plot")),
-                            ui.nav_panel(
-                                "🌎 Global Snapshot",
-                                ui.p(
-                                    "This plot shows the global or regional snapshot of the chemical space contributions by countries, highlighting the average top individual contributors based on the year range selected (defaults to 1996-2022).",
-                                    style="font-size: 0.9em; color: #666; text-align: center;"
-                                ), 
-                                output_widget("contribution_map")
+                                    ui.output_ui("map_output")
                                 ),
-                            ui.nav_panel("📋 Data Table", ui.output_data_frame("summary_table"))
-                        ),
-                    )
+                                class_="mb-3"
+                            ),
+                            ui.input_radio_buttons(
+                                            "display_mode_input", "📊 Display Mode:",
+                                            choices={
+                                                "compare_individuals": "Individual Countries",
+                                                "find_collaborations": "Find Collaborations (select at least 2 countries)"
+                                            },
+                                            inline=True,
+                                            selected="compare_individuals"
+                                        ),
+                            ui.navset_card_tab( 
+                                ui.nav_panel("📈 Trends", output_widget("main_plot")),
+                                ui.nav_panel(
+                                    "🌎 Global Snapshot",
+                                    ui.p(
+                                        "This plot shows the global or regional snapshot of the chemical space contributions by countries, highlighting the average top individual contributors based on the year range selected (defaults to 1996-2022).",
+                                        style="font-size: 0.9em; color: #666; text-align: center;"
+                                    ), 
+                                    output_widget("contribution_map")
+                                    ),
+                                ui.nav_panel("📋 Data Table", ui.output_data_frame("summary_table"))
+                            )
+                        )
+                    ) # End of Tabbed Main Content
+                    # The ui.hr separator is removed as tabs provide separation.
                 ),
         # --- Other nav panels remain for auxiliary content ---
         # ui.nav_panel(
