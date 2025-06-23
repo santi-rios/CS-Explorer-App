@@ -138,7 +138,8 @@ def create_app():
                                                   ui.nav_panel(
                                                       "🏆 Main Countries",
                                                       ui.card(
-                                                          ui.p("Main countries contributing to the chemical space (CS) from 1996 to 2022. Explore more countries and the chemical space interactively below."),
+                                                          ui.p("Main countries contributing to the chemical space (CS) from 1996 to 2022.",
+                                                                style="margin-bottom: 10px; font-size: 0.9em; color: #666; text-align: center;"),
                                                           output_widget("country_cs_plot"),
                                                           ui.p("Hide a Country by clicking on its name in the legend. Double-click to isolate it.",
                                                                 style="margin-top: 10px; font-size: 0.9em; color: #666; text-align: center;")
@@ -147,7 +148,8 @@ def create_app():
                                                   ui.nav_panel(
                                                       "🥼China-US",
                                                       ui.card(
-                                                          ui.p("Percentage of new substances with participation of China or the US resulting from China-US collaboration (right axis). Left axis show the percentage of new substances with participation of country (China or US) that are reported in papers with no international collaboration."),
+                                                          ui.p("Percentage of new substances with participation of China or the US resulting from China-US collaboration (right axis). Left axis show the percentage of new substances with participation of country (China or US) that are reported in papers with no international collaboration.",
+                                                                style="margin-bottom: 10px; font-size: 0.9em; color: #666; text-align: center;"),
                                                           output_widget("china_us_plot"),
                                                           ui.p("Hide a Country by clicking on its name in the top legend. Double-click to isolate it.",
                                                                 style="margin-top: 10px; font-size: 0.9em; color: #666; text-align: center;")
@@ -197,6 +199,33 @@ def create_app():
                                             choices=initial_data['regions'], selected="All"
                                         ),
                                     ),
+                                class_="bg-light border rounded p-3 mb-4"
+                            )
+                            ),
+                            
+                            # --- Map and Selection Section ---
+                            ui.card(
+                                ui.card_header("Interactive Map & Selection"),
+                                ui.row(
+                                    ui.column(9,
+                                        ui.output_ui("map_output")
+                                    ),
+                                    ui.column(3,
+                                        ui.div(
+                                            ui.h5("Selection Controls"),
+                                            ui.input_action_button(
+                                                "clear_selection", "🗑️ Clear Selection",
+                                                class_="btn-outline-danger w-100 mb-3"
+                                            ),
+                                            ui.div(ui.output_text("selection_info"), class_="text-muted small")
+                                        )
+                                    )
+                                )
+                            ),
+
+                            # --- New Filter Section ---
+                            ui.panel_well(
+                                ui.row(
                                     ui.column(4,
                                         ui.input_select(
                                             "chemical_category", "🧪 Chemical Space:",
@@ -225,26 +254,6 @@ def create_app():
                                     )
                                 ),
                                 class_="bg-light border rounded p-3 mb-4"
-                            ),
-                            
-                            # --- Map and Selection Section ---
-                            ui.card(
-                                ui.card_header("Interactive Map & Selection"),
-                                ui.row(
-                                    ui.column(9,
-                                        ui.output_ui("map_output")
-                                    ),
-                                    ui.column(3,
-                                        ui.div(
-                                            ui.h5("Selection Controls"),
-                                            ui.input_action_button(
-                                                "clear_selection", "🗑️ Clear Selection",
-                                                class_="btn-outline-danger w-100 mb-3"
-                                            ),
-                                            ui.div(ui.output_text("selection_info"), class_="text-muted small")
-                                        )
-                                    )
-                                )
                             ),
 
                             # --- Plots Section (unchanged) ---

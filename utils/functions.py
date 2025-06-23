@@ -654,6 +654,11 @@ def create_article_plot(data: pd.DataFrame, title: str):
     """Create article plots"""
     fig = go.Figure()
     
+    # Find min and max years for dynamic range buttons
+    min_year = int(data['year'].min()) if not data.empty else 1996
+    max_year = int(data['year'].max()) if not data.empty else 2022
+    recent_years = max(max_year - 5, min_year)
+    
     for country in data['country'].unique():
         country_data = data[data['country'] == country]
         color = country_data['cc'].iloc[0] if 'cc' in country_data.columns and not country_data.empty else None
@@ -667,9 +672,6 @@ def create_article_plot(data: pd.DataFrame, title: str):
         ))
     
     fig.update_layout(
-        # title=f"{title}",
-        # xaxis_title="Year",
-        # yaxis_title="New Substances",
         yaxis = dict(
             ticksuffix='%',
             fixedrange = True,
@@ -680,24 +682,57 @@ def create_article_plot(data: pd.DataFrame, title: str):
             )
         ),
         xaxis = dict(
-            fixedrange = True,
+            autorange=False,
+            range=[min_year-1, max_year+1],
             title=go.layout.xaxis.Title(
                 text="Year",
                 standoff=1,
                 font=dict(size=12, color='black')
-            )
+            ),
+            # rangeslider=dict(
+            #     visible=True,
+            #     thickness=0.05,
+            #     bgcolor="rgba(99, 110, 250, 0.2)"
+            # ),
         ),
         template='plotly_white',
         showlegend=True,
         legend=dict(
             orientation="h", 
             y=-0.2,
-            traceorder="reversed"  # Display in same order as traces
+            traceorder="reversed"
         ),
-        hovermode='x unified',
-        modebar_remove=['zoom', 'pan', 'lasso', 'select', 'zoomIn', 'zoomOut', 'autoScale', 'resetScale']
+        hovermode='x',
+        modebar_remove=['zoom', 'pan', 'lasso', 'select', 'zoomIn', 'zoomOut', 'autoScale', 'resetScale'],
+        # Add custom year range selector buttons
+        updatemenus=[
+            dict(
+                type="buttons",
+                direction="right",
+                active=3,  # Set the default active button (All Years)
+                x=1,
+                y=1.15,
+                buttons=list([
+                    dict(
+                        label="1996-2012 (US Dominance)",
+                        method="relayout",
+                        args=[{"xaxis.range": [1996, 2013]}]
+                    ),
+                    dict(
+                        label="2012-2022 (China's Rise)",
+                        method="relayout", 
+                        args=[{"xaxis.range": [max_year - 10, max_year+1]}]
+                    ),
+                    dict(
+                        label="All Years",
+                        method="relayout",
+                        args=[{"xaxis.range": [min_year-1, max_year+1]}]
+                    )
+                ]),
+            )
+        ]
     )
-    
+
     return fig
 
 def create_article_plot_simple(
@@ -1438,6 +1473,9 @@ def create_gdp_plot(data: pd.DataFrame):
                 text="Year",
                 standoff=1,
                 font=dict(size=12, color='black')
+            ),
+            rangeslider=dict(
+                visible=True
             )
         ),
         template='plotly_white',
