@@ -158,21 +158,24 @@ def create_app():
                                                   ui.nav_panel(
                                                       "💰 GDP and growth",
                                                       ui.card(
-                                                          ui.p("Percentage of the annual growth rate of the gross domestic product (GDP) per capita"),
+                                                          ui.p("Percentage of the annual growth rate of the gross domestic product (GDP) per capita",
+                                                                style="margin-bottom: 10px; font-size: 0.9em; color: #666; text-align: center;"),
                                                           output_widget("article_gdp_plot")
                                                       )
                                                   ),
                                                   ui.nav_panel(
                                                       "👥 Number of Researchers",
                                                       ui.card(
-                                                          ui.p("Number of researchers in research and development activities"),
+                                                          ui.p("Number of researchers in research and development activities",
+                                                                style="margin-bottom: 10px; font-size: 0.9em; color: #666; text-align: center;"),
                                                           output_widget("article_researchers_plot")
                                                       )
                                                   ),
                                                   ui.nav_panel(
                                                       "🧪 Chemical Space Expansion",
                                                       ui.card(
-                                                          ui.p("Recent expansion of the CS and of three of its subspaces"),
+                                                          ui.p("Recent expansion of the CS and of three of its subspaces",
+                                                                style="margin-bottom: 10px; font-size: 0.9em; color: #666; text-align: center;"),
                                                           output_widget("article_cs_expansion_plot")
                                                       )
                                                   ),
@@ -262,7 +265,7 @@ def create_app():
                                 ui.nav_panel(
                                     "🌎 Global Snapshot",
                                     ui.p(
-                                        "This plot shows the global or regional snapshot of the chemical space contributions by countries, highlighting the average top individual contributors based on the year range selected (defaults to 1996-2022).",
+                                        "This plot shows the global or regional snapshot of the chemical space contributions by countries, highlighting the average contributions based on the year range selected (defaults to 1996-2022).",
                                         style="font-size: 0.9em; color: #666; text-align: center;"
                                     ), 
                                     output_widget("contribution_map")

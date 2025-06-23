@@ -1474,9 +1474,6 @@ def create_gdp_plot(data: pd.DataFrame):
                 standoff=1,
                 font=dict(size=12, color='black')
             ),
-            rangeslider=dict(
-                visible=True
-            )
         ),
         template='plotly_white',
         showlegend=True,
@@ -1636,9 +1633,14 @@ def create_china_us_dual_axis_plot(data: pd.DataFrame):
             fixedrange = True,
             title=go.layout.xaxis.Title(
                 text="Year",
-                standoff=1,
-                font=dict(size=10, color='black')
+                standoff=1.3,
+                font=dict(size=11, color='black')
             )
+            # rangeslider=dict(
+            #     visible=True,
+            #     thickness=0.05,
+            #     bgcolor="rgba(99, 110, 250, 0.2)"
+            # ),
         ),
         yaxis2=dict(
             overlaying='y',
