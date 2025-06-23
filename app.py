@@ -117,7 +117,7 @@ def create_app():
                                     class_="btn-primary",
                                     style="margin: 0 auto; display: block; padding: 8px 16px; font-weight: bold;"
                                 ),
-                                "From 1996 to 2022, the landscape of chemical discovery shifted dramatically. China surged to dominate new substance creation, primarily through domestic research.",
+                                "From 1996 to 2022, the landscape of chemical discovery shifted dramatically. China surged to dominate the report of new substances, primarily through domestic research.",
                                 " Conversely, the United States' solo contributions declined, becoming more reliant on international collaborations, particularly with China.",
                                 id="btn_popover",
                             ),
@@ -149,7 +149,8 @@ def create_app():
                                                       ui.card(
                                                           ui.p("Percentage of new substances with participation of China or the US resulting from China-US collaboration (right axis). Left axis show the percentage of new substances with participation of country (China or US) that are reported in papers with no international collaboration."),
                                                           output_widget("china_us_plot"),
-                                                          style="margin-top: 10px; font-size: 0.9em; color: #666; text-align: center;"
+                                                          ui.p("Hide a Country by clicking on its name in the top legend. Double-click to isolate it.",
+                                                                style="margin-top: 10px; font-size: 0.9em; color: #666; text-align: center;")
                                                       )
                                                   ),
                                                   ui.nav_panel(

@@ -291,8 +291,23 @@ def create_main_plot(
     # Update layout
     fig.update_layout(
         title="Chemical Contribution Trends",
-        xaxis_title="Year",
-        yaxis_title="% of New Substances",
+        yaxis = dict(
+            ticksuffix='%',
+            fixedrange = True,
+            title=go.layout.yaxis.Title(
+                text="New Substances",
+                standoff=1,
+                font=dict(size=12, color='black')
+            )
+        ),
+        xaxis = dict(
+            fixedrange = True,
+            title=go.layout.xaxis.Title(
+                text="Year",
+                standoff=1,
+                font=dict(size=12, color='black')
+            )
+        ),
         template='plotly_white',
         hovermode='closest',
         showlegend=True,
@@ -495,11 +510,22 @@ def create_trends_plot(data: pd.DataFrame, selected_countries: List[str], mode: 
     
     fig.update_layout(
         title=plot_title,
-        xaxis_title="Year",
-        yaxis_title="New Substances",
-        yaxis=dict(
+        yaxis = dict(
             ticksuffix='%',
-            fixedrange=True
+            fixedrange = True,
+            title=go.layout.yaxis.Title(
+                text="New Substances",
+                standoff=1,
+                font=dict(size=12, color='black')
+            )
+        ),
+        xaxis = dict(
+            fixedrange = True,
+            title=go.layout.xaxis.Title(
+                text="Year",
+                standoff=1,
+                font=dict(size=12, color='black')
+            )
         ),
         hovermode='closest', # Changed from 'x unified' to 'closest' for better individual point hovering
         template='plotly_white',
@@ -643,13 +669,23 @@ def create_article_plot(data: pd.DataFrame, title: str):
     fig.update_layout(
         # title=f"{title}",
         # xaxis_title="Year",
-        yaxis_title="New Substances",
+        # yaxis_title="New Substances",
         yaxis = dict(
             ticksuffix='%',
-            fixedrange = True
+            fixedrange = True,
+            title=go.layout.yaxis.Title(
+                text="New Substances",
+                standoff=1,
+                font=dict(size=12, color='black')
+            )
         ),
         xaxis = dict(
-            fixedrange = True
+            fixedrange = True,
+            title=go.layout.xaxis.Title(
+                text="Year",
+                standoff=1,
+                font=dict(size=12, color='black')
+            )
         ),
         template='plotly_white',
         showlegend=True,
@@ -801,8 +837,23 @@ def create_top_collabs_plot(top_collab_data: pd.DataFrame, title: str = "Collabo
     
     fig.update_layout(
         title=title,
-        xaxis_title="Year",
-        yaxis_title="% of New Substances",
+        yaxis = dict(
+            ticksuffix='%',
+            fixedrange = True,
+            title=go.layout.yaxis.Title(
+                text="New Substances",
+                standoff=1,
+                font=dict(size=12, color='black')
+            )
+        ),
+        xaxis = dict(
+            fixedrange = True,
+            title=go.layout.xaxis.Title(
+                text="Year",
+                standoff=1,
+                font=dict(size=12, color='black')
+            )
+        ),
         template='plotly_white',
         showlegend=True,
         legend=dict(orientation="h", y=-0.3)
@@ -841,11 +892,22 @@ def create_top_trends_plot(data: pd.DataFrame, title: str):
     
     fig.update_layout(
         # title=title,
-        # xaxis_title="Year", 
-        yaxis_title="New Substances",
         yaxis = dict(
             ticksuffix='%',
-            fixedrange=True
+            fixedrange = True,
+            title=go.layout.yaxis.Title(
+                text="New Substances",
+                standoff=1,
+                font=dict(size=12, color='black')
+            )
+        ),
+        xaxis = dict(
+            fixedrange = True,
+            title=go.layout.xaxis.Title(
+                text="Year",
+                standoff=1,
+                font=dict(size=12, color='black')
+            )
         ),
         template='plotly_white',
         showlegend=True,
@@ -1280,12 +1342,24 @@ def create_gdp_plot(data: pd.DataFrame):
         )
     
     fig.update_layout(
-        yaxis_title="GDP Growth Rate",
-        template='plotly_white',
         yaxis = dict(
             ticksuffix='%',
-            fixedrange=True
+            fixedrange = True,
+            title=go.layout.yaxis.Title(
+                text="GDP Growth Rate",
+                standoff=1,
+                font=dict(size=12, color='black')
+            )
         ),
+        xaxis = dict(
+            fixedrange = True,
+            title=go.layout.xaxis.Title(
+                text="Year",
+                standoff=1,
+                font=dict(size=12, color='black')
+            )
+        ),
+        template='plotly_white',
         showlegend=True,
         legend=dict(
             orientation="h", 
@@ -1316,11 +1390,22 @@ def create_researchers_plot(data: pd.DataFrame):
         ))
     
     fig.update_layout(
-        yaxis_title="Number of Researchers (Millions)",
         yaxis = dict(
-            ticksuffix= 'M',
-            fixedrange = True
-            # tickformat = ',.0f'  # Format as whole numbers
+            ticksuffix='M',
+            fixedrange = True,
+            title=go.layout.yaxis.Title(
+                text="Number of Researchers (Millions)",
+                standoff=1,
+                font=dict(size=12, color='black')
+            )
+        ),
+        xaxis = dict(
+            fixedrange = True,
+            title=go.layout.xaxis.Title(
+                text="Year",
+                standoff=1,
+                font=dict(size=12, color='black')
+            )
         ),
         template='plotly_white',
         showlegend=True,
@@ -1351,11 +1436,23 @@ def create_cs_expansion_plot(data: pd.DataFrame):
         ))
     
     fig.update_layout(
-        yaxis_title="Number of New Substances",
-        template='plotly_white',
         yaxis = dict(
-            fixedrange = True
+            fixedrange = True,
+            title=go.layout.yaxis.Title(
+                text="Number of New Substances",
+                standoff=1,
+                font=dict(size=12, color='black')
+            )
         ),
+        xaxis = dict(
+            fixedrange = True,
+            title=go.layout.xaxis.Title(
+                text="Year",
+                standoff=1,
+                font=dict(size=12, color='black')
+            )
+        ),
+        template='plotly_white',
         showlegend=True,
         legend=dict(
             orientation="h", 
@@ -1407,19 +1504,33 @@ def create_china_us_dual_axis_plot(data: pd.DataFrame):
 
     fig.update_layout(
         # title_text="China-US Contributions & Collaboration Impact",
-        # xaxis_title="Year",
-        yaxis=dict(
-            title_text="National Contribution to the National share of the CS", # Adjust title as per your data's meaning
-            ticksuffix= '%', 
-            fixedrange=True,
-            # titlefont=dict(color=colors.get("China")) # Optional: color primary axis title
+        yaxis = dict(
+            ticksuffix='%',
+            fixedrange = True,
+            title=go.layout.yaxis.Title(
+                text="National Contribution to the National share of the CS",
+                standoff=1,
+                font=dict(size=12, color='black')
+            )
+        ),
+        xaxis = dict(
+            fixedrange = True,
+            title=go.layout.xaxis.Title(
+                text="Year",
+                standoff=1,
+                font=dict(size=10, color='black')
+            )
         ),
         yaxis2=dict(
-            title_text="China-US Contribution to the National share of the CS", # Adjust title
             overlaying='y',
             side='right',
             ticksuffix= '%',
             fixedrange=True,
+            title=go.layout.yaxis.Title(
+                text="China-US Contribution to the National share of the CS",
+                standoff=1,
+                font=dict(size=10, color='black')
+            )
             # titlefont=dict(color=colors.get("CN-US collab/US")) # Optional: color secondary axis title
             # rangemode='tozero' # Or 'normal', depending on data
         ),
