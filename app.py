@@ -202,32 +202,6 @@ def create_app():
                                             choices=initial_data['regions'], selected="All"
                                         ),
                                     ),
-                                class_="bg-light border rounded p-3 mb-4"
-                            )
-                            ),
-                            
-                            # --- Map and Selection Section ---
-                            ui.card(
-                                ui.card_header("Interactive Map & Selection"),
-                                ui.row(
-                                    ui.column(9,
-                                        ui.output_ui("map_output")
-                                    ),
-                                    ui.column(3,
-                                        ui.div(
-                                            ui.h5("Selection Controls"),
-                                            ui.input_action_button(
-                                                "clear_selection", "🗑️ Clear Selection",
-                                                class_="btn-outline-danger w-100 mb-3"
-                                            ),
-                                            ui.div(ui.output_text("selection_info"), class_="text-muted small")
-                                        )
-                                    )
-                                )
-                            ),
-
-                            # --- New Filter Section ---
-                            ui.panel_well(
                                 ui.row(
                                     ui.column(4,
                                         ui.input_select(
@@ -246,6 +220,32 @@ def create_app():
                                         ),
                                     ),
                                 ),
+                                class_="bg-light border border-1 rounded p-1 mb-1"
+                            )
+                            ),
+                            
+                            # --- Map and Selection Section ---
+                            ui.card(
+                                ui.card_header("Interactive Map & Selection"),
+                                ui.row(
+                                    ui.column(9,
+                                        ui.output_ui("map_output")
+                                    ),
+                                    ui.column(3,
+                                        ui.div(
+                                            ui.input_action_button(
+                                                "clear_selection", "🗑️ Clear CurrentSelection",
+                                                class_="btn-outline-danger w-100 mb-3"
+                                            ),
+                                            ui.div(ui.output_text("selection_info"), class_="text-muted small")
+                                        )
+                                    )
+                                ),
+                                class_="border rounded p-1 mb-1"
+                            ),
+
+                            # --- New Filter Section ---
+                            ui.panel_well(
                                 ui.row(
                                     ui.column(12,
                                         ui.input_slider(
@@ -256,7 +256,7 @@ def create_app():
                                         ),
                                     )
                                 ),
-                                class_="bg-light border rounded p-3 mb-4"
+                                class_="bg-light border border-1 rounded p-1 mb-1"
                             ),
 
                             # --- Plots Section (unchanged) ---

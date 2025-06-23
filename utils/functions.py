@@ -672,6 +672,7 @@ def create_article_plot(data: pd.DataFrame, title: str):
         ))
     
     fig.update_layout(
+        height=550,
         yaxis = dict(
             ticksuffix='%',
             fixedrange = True,
@@ -699,7 +700,7 @@ def create_article_plot(data: pd.DataFrame, title: str):
         showlegend=True,
         legend=dict(
             orientation="h", 
-            y=-0.2,
+            y=-0.25,
             traceorder="reversed"
         ),
         hovermode='x',
@@ -711,20 +712,20 @@ def create_article_plot(data: pd.DataFrame, title: str):
                 direction="right",
                 active=3,  # Set the default active button (All Years)
                 x=1,
-                y=1.15,
+                y=1.35,
                 buttons=list([
                     dict(
-                        label="1996-2012 (US Dominance)",
+                        label="1996-2012",
                         method="relayout",
                         args=[{"xaxis.range": [1996, 2013]}]
                     ),
                     dict(
-                        label="2012-2022 (China's Rise)",
+                        label="2012-2022",
                         method="relayout", 
                         args=[{"xaxis.range": [max_year - 10, max_year+1]}]
                     ),
                     dict(
-                        label="All Years",
+                        label="All",
                         method="relayout",
                         args=[{"xaxis.range": [min_year-1, max_year+1]}]
                     )
@@ -927,6 +928,7 @@ def create_top_trends_plot(data: pd.DataFrame, title: str):
     
     fig.update_layout(
         # title=title,
+        height=550,
         yaxis = dict(
             ticksuffix='%',
             fixedrange = True,
@@ -973,13 +975,13 @@ def create_folium_map(country_list: pd.DataFrame, selected_countries: List[str])
         
         # Determine appropriate zoom level
         if lat_range > 60 or lng_range > 120:  # Global view
-            zoom_start = 2
+            zoom_start = 1
         elif lat_range > 30 or lng_range > 60:  # Continental view
-            zoom_start = 3
+            zoom_start = 2
         elif lat_range > 15 or lng_range > 30:  # Regional view
-            zoom_start = 4
+            zoom_start = 3
         else:  # Local view
-            zoom_start = 5
+            zoom_start = 4
     else:
         center_lat, center_lng, zoom_start = 30, 10, 2
     
@@ -1458,6 +1460,7 @@ def create_gdp_plot(data: pd.DataFrame):
         )
     
     fig.update_layout(
+        height=500,
         yaxis = dict(
             ticksuffix='%',
             fixedrange = True,
@@ -1620,6 +1623,7 @@ def create_china_us_dual_axis_plot(data: pd.DataFrame):
 
     fig.update_layout(
         # title_text="China-US Contributions & Collaboration Impact",
+        height=550,
         yaxis = dict(
             ticksuffix='%',
             fixedrange = True,
