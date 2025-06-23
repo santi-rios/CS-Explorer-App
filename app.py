@@ -181,26 +181,6 @@ def create_app():
                             )
                         ),
                         ui.nav_panel(
-                            "🤝 Top Trends",
-                            # Content from former "Top Collaborations plot" section
-                            ui.row(
-                                ui.column(12, 
-                                          ui.panel_well(
-                                              ui.h4("Explore Top Collaborations and Countries in the CS", style="margin-top: 0; text-align: center;"),
-                                              ui.row( 
-                                                  ui.column(6, ui.input_select("top_collabs_chem_filter", "Chemical Space Category:", choices=initial_data['chemical_categories'], selected="All")),
-                                                  ui.column(6, ui.input_radio_buttons("top_data_type_filter", "Show Top:", choices={"collabs": "Collaborations", "individuals": "Countries"}, selected="collabs"))
-                                              ),
-                                              output_widget("article_top_collabs_plot"),
-                                              ui.p("Legend is sorted by the average contribution (shown in parenthesis) of the collaboration/country to the CS between 1996 to 2022.",
-                                                  style="font-size: 0.9em; color: #666; text-align: center;"),
-                                              class_="border rounded p-3 bg-light", 
-                                              style="margin-top: 20px; margin-bottom: 20px;"
-                                          )
-                                )
-                            )
-                        ),
-                        ui.nav_panel(
                             "🗺️ Interactive Explorer",
                             # Content from former "Section 2: Explore Chemical Space"
                             ui.h3("Explore Chemical Space Interactively", style="text-align: center; margin-bottom: 20px; margin-top: 20px;"),
@@ -262,7 +242,27 @@ def create_app():
                                     ),
                                 ui.nav_panel("📋 Data Table", ui.output_data_frame("summary_table"))
                             )
-                        )
+                        ),
+                        ui.nav_panel(
+                            "🤝 Top Trends",
+                            # Content from former "Top Collaborations plot" section
+                            ui.row(
+                                ui.column(12, 
+                                          ui.panel_well(
+                                              ui.h4("Explore Top Collaborations and Countries in the CS", style="margin-top: 0; text-align: center;"),
+                                              ui.row( 
+                                                  ui.column(6, ui.input_select("top_collabs_chem_filter", "Chemical Space Category:", choices=initial_data['chemical_categories'], selected="All")),
+                                                  ui.column(6, ui.input_radio_buttons("top_data_type_filter", "Show Top:", choices={"collabs": "Collaborations", "individuals": "Countries"}, selected="collabs"))
+                                              ),
+                                              output_widget("article_top_collabs_plot"),
+                                              ui.p("Legend is sorted by the average contribution (shown in parenthesis) of the collaboration/country to the CS between 1996 to 2022.",
+                                                  style="font-size: 0.9em; color: #666; text-align: center;"),
+                                              class_="border rounded p-3 bg-light", 
+                                              style="margin-top: 20px; margin-bottom: 20px;"
+                                          )
+                                )
+                            )
+                        ),
                     ) # End of Tabbed Main Content
                     # The ui.hr separator is removed as tabs provide separation.
                 ),
