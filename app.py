@@ -185,51 +185,69 @@ def create_app():
                             # Content from former "Section 2: Explore Chemical Space"
                             ui.h3("Explore Chemical Space Interactively", style="text-align: center; margin-bottom: 20px; margin-top: 20px;"),
                             ui.p(
-                                "Dive into the interactive map to visualize the chemical space contributions of different countries. Use the filters (click on the arrow > to the top-left of the map) to limit the year range, regions, CS or clear your current selection.",
+                                "Dive into the interactive map and plots below. Use the filters to dynamically update the visualizations.",
                                 style="text-align: center; margin-bottom: 30px; font-size: 1.1em; color: #555;"
                             ),
-                            ui.card(
-                                ui.card_header("Interactive Chemical Space Map"), # Simplified header
-                                ui.layout_sidebar(
-                                    ui.sidebar(
-                                        ui.h5("⚙️ Filters & Options"),
+                            # --- New Filter Section ---
+                            ui.panel_well(
+                                ui.row(
+                                    ui.column(4,
                                         ui.input_select(
                                             "region_filter", "🌍 Filter by Region:",
                                             choices=initial_data['regions'], selected="All"
                                         ),
+                                    ),
+                                    ui.column(4,
+                                        ui.input_select(
+                                            "chemical_category", "🧪 Chemical Space:",
+                                            choices=initial_data['chemical_categories'], selected="All"
+                                        ),
+                                    ),
+                                    ui.column(4,
+                                        ui.input_radio_buttons(
+                                            "display_mode_input", "📊 Display Mode:",
+                                            choices={
+                                                "compare_individuals": "Individual Countries",
+                                                "find_collaborations": "Find Collaborations"
+                                            },
+                                            selected="compare_individuals"
+                                        ),
+                                    ),
+                                ),
+                                ui.row(
+                                    ui.column(12,
                                         ui.input_slider(
                                             "years", "📅 Year Range:",
                                             min=initial_data['min_year'], max=initial_data['max_year'],
                                             value=[initial_data['min_year'], initial_data['max_year']],
                                             step=1, sep=""
                                         ),
-                                        ui.input_select(
-                                            "chemical_category", "🧪 Chemical Space:",
-                                            choices=initial_data['chemical_categories'], selected="All"
-                                        ),
+                                    )
+                                ),
+                                class_="bg-light border rounded p-3 mb-4"
+                            ),
+                            
+                            # --- Map and Selection Section ---
+                            ui.card(
+                                ui.card_header("Interactive Map & Selection"),
+                                ui.row(
+                                    ui.column(9,
+                                        ui.output_ui("map_output")
+                                    ),
+                                    ui.column(3,
                                         ui.div(
+                                            ui.h5("Selection Controls"),
                                             ui.input_action_button(
                                                 "clear_selection", "🗑️ Clear Selection",
-                                                class_="btn-outline-danger w-100"
+                                                class_="btn-outline-danger w-100 mb-3"
                                             ),
-                                            ui.div(ui.output_text("selection_info"), class_="mt-2 text-muted small")
-                                        ),
-                                        open = "closed", 
-                                        width=220 
-                                    ),
-                                    ui.output_ui("map_output")
-                                ),
-                                class_="mb-3"
+                                            ui.div(ui.output_text("selection_info"), class_="text-muted small")
+                                        )
+                                    )
+                                )
                             ),
-                            ui.input_radio_buttons(
-                                            "display_mode_input", "📊 Display Mode:",
-                                            choices={
-                                                "compare_individuals": "Individual Countries",
-                                                "find_collaborations": "Find Collaborations (select at least 2 countries)"
-                                            },
-                                            inline=True,
-                                            selected="compare_individuals"
-                                        ),
+
+                            # --- Plots Section (unchanged) ---
                             ui.navset_card_tab( 
                                 ui.nav_panel("📈 Trends", output_widget("main_plot")),
                                 ui.nav_panel(
@@ -252,7 +270,9 @@ def create_app():
                                               ui.h4("Explore Top Collaborations and Countries in the CS", style="margin-top: 0; text-align: center;"),
                                               ui.row( 
                                                   ui.column(6, ui.input_select("top_collabs_chem_filter", "Chemical Space Category:", choices=initial_data['chemical_categories'], selected="All")),
-                                                  ui.column(6, ui.input_radio_buttons("top_data_type_filter", "Show Top:", choices={"collabs": "Collaborations", "individuals": "Countries"}, selected="collabs"))
+                                                  ui.column(6, ui.input_radio_buttons("top_data_type_filter", "Show Top:", choices={"collabs": "Collaborations", "individuals": "Countries"}, selected="collabs")),
+                                                  ui.p("When viewing collaborations, Blue Colors represent Countries Collaborations with the US",
+                                                       style="font-size: 0.9em; color: #666; text-align: center;")
                                               ),
                                               output_widget("article_top_collabs_plot"),
                                               ui.p("Legend is sorted by the average contribution (shown in parenthesis) of the collaboration/country to the CS between 1996 to 2022.",

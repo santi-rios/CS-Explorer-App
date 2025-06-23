@@ -921,7 +921,7 @@ def create_top_trends_plot(data: pd.DataFrame, title: str):
         hovermode='closest',
         modebar_remove=['zoom', 'pan', 'lasso', 'select', 'zoomIn', 'zoomOut', 'autoScale']
     )
-    
+
     return fig
 
 def create_folium_map(country_list: pd.DataFrame, selected_countries: List[str]) -> folium.Map:
@@ -1226,6 +1226,10 @@ def create_contribution_choropleth(data: pd.DataFrame):
         colorbar=dict(
             title="Avg. Contribution",
             orientation = "h",
+            yanchor="bottom",
+            y=0.02,
+            xanchor="left",
+            x=0.1,
             # tickangle =0,
             # tickformat = ".2f",
             ticklabelstep = 4,
@@ -1255,7 +1259,84 @@ def create_contribution_choropleth(data: pd.DataFrame):
         margin=dict(l=20, r=20, t=60, b=20),
         modebar_remove=['zoom', 'pan', 'lasso', 'select']
     )
-    
+
+    # Add dropdowns
+    button_layer_1_height = 1.02
+    fig.update_layout(
+    updatemenus=[
+        dict(
+            buttons=list([
+                dict(
+                    args=["colorscale", "Viridis"],
+                    label="Viridis",
+                    method="restyle"
+                ),
+                dict(
+                    args=["colorscale", "Cividis"],
+                    label="Cividis",
+                    method="restyle"
+                ),
+                dict(
+                    args=["colorscale", "Reds"],
+                    label="Reds",
+                    method="restyle"
+                ),
+                dict(
+                    args=["colorscale", "Blues"],
+                    label="Blues",
+                    method="restyle"
+                ),
+                dict(
+                    args=["colorscale", "Greens"],
+                    label="Greens",
+                    method="restyle"
+                ),
+                dict(
+                    args=["colorscale", "Jet"],
+                    label="Rainbow",
+                    method="restyle"
+                ),
+            ]),
+            direction="down",
+            pad={"r": 10, "t": 10},
+            showactive=True,
+            x=0.1,
+            xanchor="left",
+            y=button_layer_1_height,
+            yanchor="top"
+        ),
+        dict(
+            buttons=list([
+                dict(
+                    args=["reversescale", False],
+                    label="False",
+                    method="restyle"
+                ),
+                dict(
+                    args=["reversescale", True],
+                    label="True",
+                    method="restyle"
+                )
+            ]),
+            direction="down",
+            pad={"r": 10, "t": 10},
+            showactive=True,
+            x=0.37,
+            xanchor="left",
+            y=button_layer_1_height,
+            yanchor="top"
+        ),
+    ]
+    )
+
+    fig.update_layout(
+    annotations=[
+        dict(text="Colorscale", x=0, xref="paper", y=1.04, yref="paper",
+                             align="left", showarrow=False),
+        dict(text="Reverse Colorscale", x=0.25, xref="paper", y=1.04,
+                             yref="paper", showarrow=False)
+    ])
+
     return fig
 
 def create_summary_dataframe(data: pd.DataFrame, mode: str) -> pd.DataFrame:
