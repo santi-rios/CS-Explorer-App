@@ -190,7 +190,7 @@ def create_app():
                             # Content from former "Section 2: Explore Chemical Space"
                             ui.h3("Explore Chemical Space Interactively", style="text-align: center; margin-bottom: 20px; margin-top: 20px;"),
                             ui.p(
-                                "Dive into the interactive map and plots below. Use the filters to dynamically update the visualizations.",
+                                "Dive into the interactive map and plots to explore the CS across 155 countries from 1996 to 2022. You can select more than one country to find the collaborations in the literature between the selected countries.",
                                 style="text-align: center; margin-bottom: 30px; font-size: 1.1em; color: #555;"
                             ),
                             # --- New Filter Section ---
@@ -209,16 +209,6 @@ def create_app():
                                             choices=initial_data['chemical_categories'], selected="All"
                                         ),
                                     ),
-                                    ui.column(4,
-                                        ui.input_radio_buttons(
-                                            "display_mode_input", "📊 Display Mode:",
-                                            choices={
-                                                "compare_individuals": "Individual Countries",
-                                                "find_collaborations": "Find Collaborations"
-                                            },
-                                            selected="compare_individuals"
-                                        ),
-                                    ),
                                 ),
                                 class_="bg-light border border-1 rounded p-1 mb-1"
                             )
@@ -234,7 +224,7 @@ def create_app():
                                     ui.column(3,
                                         ui.div(
                                             ui.input_action_button(
-                                                "clear_selection", "🗑️ Clear CurrentSelection",
+                                                "clear_selection", "🗑️Reset",
                                                 class_="btn-outline-danger w-100 mb-3"
                                             ),
                                             ui.div(ui.output_text("selection_info"), class_="text-muted small")
@@ -254,6 +244,17 @@ def create_app():
                                             value=[initial_data['min_year'], initial_data['max_year']],
                                             step=1, sep=""
                                         ),
+                                    ui.br(),
+                                    ui.column(4,
+                                        ui.input_radio_buttons(
+                                            "display_mode_input", "📊 Display Mode:",
+                                            choices={
+                                                "compare_individuals": "Individual Countries",
+                                                "find_collaborations": "Find Collaborations"
+                                            },
+                                            selected="compare_individuals"
+                                        ),
+                                    ),
                                     )
                                 ),
                                 class_="bg-light border border-1 rounded p-1 mb-1"

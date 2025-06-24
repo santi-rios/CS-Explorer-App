@@ -282,12 +282,15 @@ def create_main_plot(
                     sizemax=12
                 ),
                 hovertemplate=(
-                    f"<b>{group}</b><br>" +
+                    f"<b>Collaboration: {group}</b><br>" +
                     "Year: %{x}<br>" +
                     "Percentage: %{y:.2f}%<extra></extra>"
                 )
             ))
     
+    # Define legend configuration based on display mode
+    legend_title = "All collaborations including the selected countries" if display_mode == "find_collaborations" else None
+
     # Update layout
     fig.update_layout(
         title="Chemical Contribution Trends",
@@ -312,11 +315,12 @@ def create_main_plot(
         hovermode='closest',
         showlegend=True,
         legend=dict(
-            orientation="v",
+            title=legend_title,
+            orientation="h",
             yanchor="top",
-            y=1,
-            xanchor="left", 
-            x=1.02
+            y=-0.3,
+            xanchor="center", 
+            x=0.5
         )
     )
     
@@ -411,46 +415,32 @@ def create_empty_plot(message: str):
     return fig
 
 def create_trends_plot(data: pd.DataFrame, selected_countries: List[str], mode: str):
-    """Create trends plot using Plotly"""
+    """Create trends plot using Plotly with an improved, responsive layout."""
     fig = go.Figure()
     
-    value_column = 'total_percentage' # Expect this from get_display_data
+    value_column = 'total_percentage'
     
     if value_column not in data.columns or data.empty:
         fig.add_annotation(
             text=f"Error: Missing '{value_column}' column or no data.",
             xref="paper", yref="paper",
-            x=0.5, y=0.5, showarrow=False
+            x=0.5, y=0.5, showarrow=False, font=dict(size=14)
         )
-        fig.update_layout(
-            xaxis=dict(visible=False),
-            yaxis=dict(visible=False),
-            template='plotly_white'
-        )
+        fig.update_layout(xaxis=dict(visible=False), yaxis=dict(visible=False), template='plotly_white')
         return fig
     
-    # Sort the entire dataset by plot_group and then by year.
-    # This ensures that when we iterate through unique plot_groups,
-    # the data for each group is already sorted by year.
     data_sorted = data.sort_values(['plot_group', 'year'])
 
-    plot_title = "Chemical Space Contribution Trends"
-    show_legend_for_plot = True # Default to showing legend
-
+    # --- Trace Generation ---
     if mode == "compare_individuals":
-        plot_title = "Individual Country Contribution Trends"
         for country_name_str in data_sorted['plot_group'].unique(): 
-            country_name = str(country_name_str) # Ensure string for name
-            # country_data_for_trace will be sorted by year due to the initial sort of data_sorted
+            country_name = str(country_name_str)
             country_data_for_trace = data_sorted[data_sorted['plot_group'] == country_name]
-
             if country_data_for_trace.empty:
                 continue
             
-            # Assuming plot_color is consistent for the entire group (country)
             color = None
-            if 'plot_color' in country_data_for_trace.columns and not country_data_for_trace.empty:
-                # Take the first available color for this country
+            if 'plot_color' in country_data_for_trace.columns:
                 first_valid_color = country_data_for_trace['plot_color'].dropna()
                 if not first_valid_color.empty:
                     color = first_valid_color.iloc[0]
@@ -460,77 +450,110 @@ def create_trends_plot(data: pd.DataFrame, selected_countries: List[str], mode: 
                 y=country_data_for_trace[value_column],
                 mode='lines+markers',
                 name=country_name,
-                line=dict(color=color if color else None), # Plotly will assign a color if None
+                line=dict(color=color),
+                marker=dict(symbol='circle', size=8, color=color),
                 hovertemplate=(
                     f"<b>{country_name}</b><br>" +
                     "Year: %{x}<br>" +
                     f"Contribution: %{{y:.2f}}%<extra></extra>"
                 )
             ))
+            
     elif mode == "find_collaborations":
-        plot_title = "Collaboration Trends"
-        show_legend_for_plot = False # Hide legend for collaboration mode
-        
         collab_type_colors = {
-            "Bilateral": "rgba(255, 127, 14, 0.9)",
-            "Trilateral": "rgba(44, 160, 44, 0.9)",
-            "4-country": "rgba(214, 39, 40, 0.9)",
-            "5-country+": "rgba(148, 103, 189, 0.9)",
+            "Bilateral": "rgba(255, 127, 14, 0.9)", "Trilateral": "rgba(44, 160, 44, 0.9)",
+            "4-country": "rgba(214, 39, 40, 0.9)", "5-country+": "rgba(148, 103, 189, 0.9)",
             "Unknown": "rgba(127, 127, 127, 0.9)"
+        }
+        collab_type_symbols = {
+            "Bilateral": "circle", "Trilateral": "square",
+            "4-country": "diamond", "5-country+": "triangle-up", "Unknown": "cross"
         }
 
         for collab_id_str in data_sorted['plot_group'].unique(): 
-            collab_id = str(collab_id_str) # Ensure string for name
-            # collab_data_for_trace will be sorted by year
+            collab_id = str(collab_id_str)
             collab_data_for_trace = data_sorted[data_sorted['plot_group'] == collab_id]
-
             if collab_data_for_trace.empty:
                 continue
             
-            # Assuming plot_color_group is consistent for the entire group (collaboration)
             collab_type = "Unknown"
-            if 'plot_color_group' in collab_data_for_trace.columns and not collab_data_for_trace.empty:
+            if 'plot_color_group' in collab_data_for_trace.columns:
                 first_valid_type = collab_data_for_trace['plot_color_group'].dropna()
                 if not first_valid_type.empty:
                     collab_type = str(first_valid_type.iloc[0])
+
+            display_name = collab_id
+            if 'iso2c' in collab_data_for_trace.columns:
+                iso_codes_value = collab_data_for_trace['iso2c'].iloc[0]
+                if isinstance(iso_codes_value, str) and '-' in iso_codes_value:
+                    iso_codes = iso_codes_value.split('-')
+                    highlighted_codes = [f"<b>{code}</b>" if code in selected_countries else code for code in iso_codes]
+                    display_name = ' + '.join(highlighted_codes)
 
             fig.add_trace(go.Scatter(
                 x=collab_data_for_trace['year'],
                 y=collab_data_for_trace[value_column],
                 mode='lines+markers',
-                name=collab_id, # Name is kept for hover data, even if legend is hidden
-                showlegend=False, 
-                line=dict(color=collab_type_colors.get(collab_type, collab_type_colors["Unknown"])),
+                name=display_name,
+                showlegend=True,
+                line=dict(color=collab_type_colors.get(collab_type, collab_type_colors["Unknown"]), width=1.5),
+                marker=dict(
+                    symbol=collab_type_symbols.get(collab_type, "circle"), size=8,
+                    color=collab_type_colors.get(collab_type, collab_type_colors["Unknown"])
+                ),
                 hovertemplate=(
-                    f"<b>Collaboration: {collab_id}</b> ({collab_type})<br>" +
+                    f"<b>Collaboration: {display_name}</b><br>" +
+                    f"Type: {collab_type}<br>" +
                     "Year: %{x}<br>" +
                     f"Contribution: %{{y:.2f}}%<extra></extra>"
-                )
+                ),
+                meta=collab_type
             ))
     
+    # --- Layout and Interactivity Improvements ---
+    legend_config = {
+        "orientation": "v", "yanchor": "top", "y": 1, "xanchor": "left", "x": 1.02,
+        "bgcolor": "rgba(255,255,255,0.8)", "bordercolor": "rgba(0,0,0,0.1)", "borderwidth": 1,
+        "title": {"text": "Countries" if mode == "compare_individuals" else "Collaborations", "font": {"size": 12}}
+    }
+
+    updatemenus = []
+    if mode == "find_collaborations":
+        collab_types = sorted(data_sorted['plot_color_group'].dropna().unique().tolist()) if 'plot_color_group' in data_sorted.columns else []
+        if collab_types:
+            filter_buttons = [dict(label="All Types", method="restyle", args=[{"visible": [True] * len(fig.data)}])]
+            for collab_type in collab_types:
+                visibility = [trace.meta == collab_type for trace in fig.data]
+                filter_buttons.append(dict(label=collab_type, method="restyle", args=[{"visible": visibility}]))
+            
+            updatemenus.append(dict(
+                type="buttons", direction="right", active=0, x=0.5, y=1.15,
+                xanchor="center", yanchor="top", buttons=filter_buttons,
+                pad={"r": 5, "t": 10}, bgcolor="rgba(240,240,240,0.95)",
+                bordercolor="#ccc", borderwidth=1
+            ))
+
     fig.update_layout(
-        title=plot_title,
-        yaxis = dict(
-            ticksuffix='%',
-            fixedrange = True,
-            title=go.layout.yaxis.Title(
-                text="New Substances",
-                standoff=1,
-                font=dict(size=12, color='black')
-            )
+        yaxis=dict(
+            ticksuffix='%', fixedrange=True,
+            title=dict(text="Percentage of New Substances", standoff=5, font=dict(size=12, color='black'))
         ),
-        xaxis = dict(
-            fixedrange = True,
-            title=go.layout.xaxis.Title(
-                text="Year",
-                standoff=1,
-                font=dict(size=12, color='black')
-            )
+        xaxis=dict(
+            fixedrange=True,
+            title=dict(text="Year", standoff=5, font=dict(size=12, color='black'))
         ),
-        hovermode='closest', # Changed from 'x unified' to 'closest' for better individual point hovering
+        hovermode='x unified',
         template='plotly_white',
         modebar_remove=['zoom', 'pan', 'lasso', 'select', 'zoomIn', 'zoomOut', 'autoScale'],
-        showlegend=show_legend_for_plot # Control overall legend visibility
+        showlegend=True,
+        legend=legend_config,
+        updatemenus=updatemenus,
+        margin=dict(
+            l=60, 
+            r=200,  # Increased right margin for the vertical legend
+            b=60,
+            t=80 if mode == "find_collaborations" and updatemenus else 40
+        )
     )
     
     return fig
@@ -645,7 +668,6 @@ def calculate_top_contributors(
             on='iso2c', 
             how='left'
         )
-    
     return top_data[['rank', 'iso2c', 'country', 'percentage']].rename(
         columns={'percentage': 'avg_percentage'}
     )
@@ -704,7 +726,7 @@ def create_article_plot(data: pd.DataFrame, title: str):
             traceorder="reversed"
         ),
         hovermode='x',
-        modebar_remove=['zoom', 'pan', 'lasso', 'select', 'zoomIn', 'zoomOut', 'autoScale', 'resetScale'],
+        modebar_remove=['zoom', 'pan', 'lasso', 'select', 'zoomIn', 'zoomOut', 'autoScale'],
         # Add custom year range selector buttons
         updatemenus=[
             dict(
@@ -962,7 +984,7 @@ def create_top_trends_plot(data: pd.DataFrame, title: str):
     return fig
 
 def create_folium_map(country_list: pd.DataFrame, selected_countries: List[str]) -> folium.Map:
-    """Create interactive Folium map with improved region handling"""
+    """Create interactive Folium map with improved region handling and better country visualization"""
     
     # Determine map center based on filtered countries
     if not country_list.empty:
@@ -977,15 +999,44 @@ def create_folium_map(country_list: pd.DataFrame, selected_countries: List[str])
         if lat_range > 60 or lng_range > 120:  # Global view
             zoom_start = 1
         elif lat_range > 30 or lng_range > 60:  # Continental view
-            zoom_start = 2
+            zoom_start = 3
         elif lat_range > 15 or lng_range > 30:  # Regional view
             zoom_start = 3
         else:  # Local view
             zoom_start = 4
     else:
         center_lat, center_lng, zoom_start = 30, 10, 2
+
+    # Determine circle radius in meters based on initial zoom level for fallback markers
+    if zoom_start > 3:
+        circle_radius_meters = 80000  # Smaller radius for zoomed-in views
+    else:
+        circle_radius_meters = 150000 # Larger radius for zoomed-out views
     
-    m = folium.Map(location=[center_lat, center_lng], zoom_start=zoom_start)
+    m = folium.Map(
+        tiles="OpenStreetMap",
+        location=[center_lat, center_lng], 
+        zoom_start=zoom_start
+        )
+    
+    # Define a simplified, universal legend
+    legend_html = '''
+    <div style=" 
+                bottom: 50px; right: 10px; 
+                background-color: rgba(255, 255, 255, 0.85);
+                border: 1px solid #bbb;
+                border-radius: 5px;
+                z-index:9999; 
+                padding: 10px;
+                font-size: 12px;
+                font-family: sans-serif;">
+        </div>
+        <div style="display: flex; align-items: center;">
+            <span style="background: #83928e; border: 1px solid #333; width: 14px; height: 14px; display: inline-block; margin-right: 6px; opacity: 0.7;"></span>
+            <span>Available Countries</span>
+        </div>
+    </div>
+    '''
     
     # Add region info to map title
     if len(country_list) > 0:
@@ -997,16 +1048,15 @@ def create_folium_map(country_list: pd.DataFrame, selected_countries: List[str])
         
         # Add a subtle title overlay
         title_html = f'''
-        <div style="position: fixed; 
-                    top: 10px; left: 50px; width: 300px; height: 30px; 
+        <div style="
+                    top: 10px; left: 50px; width: 250px; height: 20px; 
                     background-color: rgba(255, 255, 255, 0.8);
                     border: 2px solid rgba(0,0,0,0.2);
                     border-radius: 5px;
                     z-index:9999; 
-                    font-size:12px;
-                    font-weight: bold;
+                    font-size:10px;
                     text-align: center;
-                    padding: 5px;">
+                    padding: 3px;">
             {map_title}
         </div>
         '''
@@ -1017,8 +1067,10 @@ def create_folium_map(country_list: pd.DataFrame, selected_countries: List[str])
         world_path = "./data/world_boundaries.geojson"
         world = gpd.read_file(world_path)
         
+        # Look for ISO column in a more comprehensive way
         iso_column = None
-        for possible_col in ['iso_a2', 'ISO_A2', 'iso2c', 'ISO2C']:
+        potential_iso_columns = ['iso_a2', 'ISO_A2', 'iso2c', 'ISO2C', 'ISO', 'iso', 'ISO_2', 'iso_2']
+        for possible_col in potential_iso_columns:
             if possible_col in world.columns:
                 iso_column = possible_col
                 break
@@ -1026,6 +1078,13 @@ def create_folium_map(country_list: pd.DataFrame, selected_countries: List[str])
         if iso_column is None:
             print("Warning: No ISO column found in GeoJSON. Available columns:", world.columns.tolist())
             raise FileNotFoundError("No suitable ISO column found")
+        
+        # Create ISO to geometry mapping for quicker lookups
+        iso_to_geometry = {}
+        for _, row in world.iterrows():
+            iso_code = row[iso_column]
+            if isinstance(iso_code, str) and len(iso_code) == 2:  # Valid ISO-2 code
+                iso_to_geometry[iso_code] = row.geometry
         
         # Add countries to map
         for _, country_row in country_list.iterrows():
@@ -1039,50 +1098,46 @@ def create_folium_map(country_list: pd.DataFrame, selected_countries: List[str])
                 fill_opacity = 0.8
                 stroke_weight = 2
             else:
-                color = "#a1b4af",  # Default color for unselected countries
+                color = "#83928e"  # Default color for unselected countries
                 fill_opacity = 0.5
                 stroke_weight = 1
             
-            country_geo = world[world[iso_column] == iso]
-            
-            if not country_geo.empty:
-                # Enhanced popup with region info
-                popup_html = f"""
-                <div style="min-width: 200px;">
-                    <h4 style="margin: 0 0 10px 0; color: #2c3e50;">
-                        {country_name} ({iso})
-                    </h4>
-                    <p style="margin: 5px 0; color: #7f8c8d;">
-                        <strong>Region:</strong> {region}
-                    </p>
-                    <p style="margin: 5px 0; color: #7f8c8d;">
-                        <strong>Status:</strong> 
-                        {'Selected' if iso in selected_countries else 'Available'}
-                    </p>
-                    <button onclick="
-                        if (window.parent && window.parent.Shiny) {{
-                            window.parent.Shiny.setInputValue('map_click_iso', '{iso}', {{priority: 'event'}});
-                        }} else if (window.Shiny) {{
-                            window.Shiny.setInputValue('map_click_iso', '{iso}', {{priority: 'event'}});
-                        }}
-                    " style="
-                        padding: 8px 16px; 
-                        margin: 10px 0 5px 0; 
-                        cursor: pointer;
-                        background-color: {'#e74c3c' if iso in selected_countries else '#3498db'};
-                        color: white;
-                        border: none;
-                        border-radius: 4px;
-                        font-weight: bold;
-                        width: 100%;
-                    ">
-                        {'🗑️ Deselect' if iso in selected_countries else '✅ Select'}
-                    </button>
-                </div>
-                """
+            # Try different case variations of the ISO code
+            geometry = None
+            for iso_variant in [iso, iso.upper(), iso.lower()]:
+                if iso_variant in iso_to_geometry:
+                    geometry = iso_to_geometry[iso_variant]
+                    break
+                    
+            # Simplified popup with just action and country name
+            popup_html = f"""
+            <div style="min-width: 120px; text-align: center;">
+                <button onclick="
+                    if (window.parent && window.parent.Shiny) {{
+                        window.parent.Shiny.setInputValue('map_click_iso', '{iso}', {{priority: 'event'}});
+                    }} else if (window.Shiny) {{
+                        window.Shiny.setInputValue('map_click_iso', '{iso}', {{priority: 'event'}});
+                    }}
+                " style="
+                    padding: 8px 12px; 
+                    margin: 5px 0; 
+                    cursor: pointer;
+                    background-color: {'#e74c3c' if iso in selected_countries else '#3498db'};
+                    color: white;
+                    border: none;
+                    border-radius: 4px;
+                    font-weight: bold;
+                    width: 100%;
+                ">
+                    {'🗑️ Deselect ' if iso in selected_countries else '✅ Select '}{country_name} ({iso})
+                </button>
+            </div>
+            """
                 
+            if geometry is not None:
+                # Use the found geometry
                 folium.GeoJson(
-                    country_geo.iloc[0].geometry,
+                    geometry,
                     style_function=lambda x, color=color, fill_opacity=fill_opacity, weight=stroke_weight: {
                         'fillColor': color,
                         'color': 'white',
@@ -1097,55 +1152,28 @@ def create_folium_map(country_list: pd.DataFrame, selected_countries: List[str])
                     popup=folium.Popup(popup_html, max_width=250)
                 ).add_to(m)
             else:
-                # Enhanced fallback markers
-                popup_html = f"""
-                <div style="min-width: 180px;">
-                    <h4 style="margin: 0 0 10px 0; color: #2c3e50;">
-                        {country_name} ({iso})
-                    </h4>
-                    <p style="margin: 5px 0; color: #7f8c8d;">
-                        <strong>Region:</strong> {region}
-                    </p>
-                    <button onclick="
-                        if (window.parent && window.parent.Shiny) {{
-                            window.parent.Shiny.setInputValue('map_click_iso', '{iso}', {{priority: 'event'}});
-                        }} else if (window.Shiny) {{
-                            window.Shiny.setInputValue('map_click_iso', '{iso}', {{priority: 'event'}});
-                        }}
-                    " style="
-                        padding: 8px 16px; 
-                        margin: 10px 0 5px 0; 
-                        cursor: pointer;
-                        background-color: {'#e74c3c' if iso in selected_countries else '#3498db'};
-                        color: white;
-                        border: none;
-                        border-radius: 4px;
-                        font-weight: bold;
-                        width: 100%;
-                    ">
-                        {'🗑️ Deselect' if iso in selected_countries else '✅ Select'}
-                    </button>
-                </div>
-                """
-                
-                folium.CircleMarker(
+                # Use folium.Circle for scalable markers for countries without shapes
+                folium.Circle(
                     location=[country_row['lat'], country_row['lng']],
-                    radius=8 if iso in selected_countries else 5,
-                    color=color,
+                    radius=circle_radius_meters,
+                    color= "#525756",
+                    weight=1,
                     fill=True,
                     fill_color=color,
                     fill_opacity=fill_opacity,
-                    weight=stroke_weight,
                     popup=folium.Popup(popup_html, max_width=220),
                     tooltip=folium.Tooltip(
-                        f"<b>{country_name}</b><br>Region: {region}",
+                        f"<b>{country_name}</b><br>Region: {region}<br>⚠️ Using approximate location",
                         sticky=True
                     )
                 ).add_to(m)
                 
+        # Add the simplified legend to the map
+        # m.get_root().html.add_child(folium.Element(legend_html))
+                
     except Exception as e:
         print(f"Error loading GeoJSON: {e}")
-        # Enhanced fallback to markers with region info
+        # Fallback to markers if GeoJSON fails
         for _, country in country_list.iterrows():
             iso = country['iso2c']
             country_name = country['country']
@@ -1153,11 +1181,9 @@ def create_folium_map(country_list: pd.DataFrame, selected_countries: List[str])
             
             if iso in selected_countries:
                 color = country['cc']
-                radius = 8
                 fill_opacity = 0.8
             else:
                 color = 'lightblue'
-                radius = 5
                 fill_opacity = 0.5
             
             popup_html = f"""
@@ -1190,19 +1216,39 @@ def create_folium_map(country_list: pd.DataFrame, selected_countries: List[str])
             </div>
             """
             
-            folium.CircleMarker(
+            folium.Circle(
                 location=[country['lat'], country['lng']],
-                radius=radius,
-                color=color,
+                radius=circle_radius_meters,
+                color='black',
+                weight=1,
                 fill=True,
                 fill_color=color,
                 fill_opacity=fill_opacity,
-                popup=folium.Popup(popup_html, max_width=220),
+                popup=folium.Popup(popup_html, max_width=300),
                 tooltip=folium.Tooltip(
-                    f"<b>{country_name}</b><br>Region: {region}",
+                    f"<b>{country_name}</b><br>Region: {region}<br>⚠️ Using approximate location",
                     sticky=True
                 )
             ).add_to(m)
+            
+        # Add warning about missing shapes
+        warning_html = '''
+        <div style="position: fixed; 
+                    bottom: 10px; left: 50px; 
+                    background-color: rgba(255, 255, 255, 0.9);
+                    border: 2px solid rgba(255, 87, 34, 0.5);
+                    border-radius: 5px;
+                    z-index:9998; 
+                    padding: 10px;
+                    font-size: 12px;
+                    max-width: 300px;">
+            <div style="color: #d32f2f;"><b>⚠️ Note:</b></div>
+            <div>Using approximate location markers since country shapes could not be loaded.</div>
+        </div>
+        '''
+        m.get_root().html.add_child(folium.Element(warning_html))
+        # Add the simplified legend in the except block as well
+        m.get_root().html.add_child(folium.Element(legend_html))
     
     return m
 
