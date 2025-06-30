@@ -1011,7 +1011,7 @@ def create_folium_map(country_list: pd.DataFrame, selected_countries: List[str])
     if zoom_start > 3:
         circle_radius_meters = 80000  # Smaller radius for zoomed-in views
     else:
-        circle_radius_meters = 150000 # Larger radius for zoomed-out views
+        circle_radius_meters = 85000 # Larger radius for zoomed-out views
     
     m = folium.Map(
         tiles="OpenStreetMap",
@@ -1080,10 +1080,19 @@ def create_folium_map(country_list: pd.DataFrame, selected_countries: List[str])
             raise FileNotFoundError("No suitable ISO column found")
         
         # Create ISO to geometry mapping for quicker lookups
+        # Use multiple ISO columns to handle cases where iso_a2 is "-99" 
         iso_to_geometry = {}
         for _, row in world.iterrows():
-            iso_code = row[iso_column]
-            if isinstance(iso_code, str) and len(iso_code) == 2:  # Valid ISO-2 code
+            # Try multiple ISO columns in order of preference
+            iso_code = None
+            for col in ['iso_a2_eh', 'wb_a2', 'iso_a2']:
+                if col in world.columns:
+                    candidate = row.get(col)
+                    if candidate is not None and isinstance(candidate, str) and len(candidate) == 2 and candidate != "-99":
+                        iso_code = candidate
+                        break
+            
+            if iso_code is not None:  # Valid ISO-2 code found
                 iso_to_geometry[iso_code] = row.geometry
         
         # Add countries to map

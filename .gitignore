@@ -45,3 +45,6 @@ rsconnect-python/
 # .env.*
 
 *.Identifier
+
+# add virtual env
+CSexplorer/
