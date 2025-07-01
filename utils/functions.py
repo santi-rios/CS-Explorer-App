@@ -1303,12 +1303,10 @@ def create_contribution_choropleth(data: pd.DataFrame):
         z=avg_data['total_percentage'],
         locationmode='ISO-3',
         colorscale='Viridis',
-        # colorscale=[[0, 'rgb(10, 49, 97)'], [1, 'rgb(238, 28, 37)']],
         reversescale=False,
         zmid=None,  # Let plotly handle the midpoint
         zmin=color_range[0],
         zmax=color_range[1],
-        # legendwidth = 20,
         hovertemplate=(
             "<b>%{customdata[0]}</b> (%{location})<br>" +
             "Avg Contribution: %{z:.2f}%<br>" +
@@ -1322,14 +1320,9 @@ def create_contribution_choropleth(data: pd.DataFrame):
             y=0.02,
             xanchor="left",
             x=0.1,
-            # tickangle =0,
-            # tickformat = ".2f",
             ticklabelstep = 4,
             ticksuffix = "%",
-            # titleside="right",
             tickmode="linear",
-            # xanchor ='right',
-            # yanchor ='bottom',
             tick0=color_range[0],
             dtick=max(0.5, (color_range[1] - color_range[0]) / 10)
         ),
@@ -1347,87 +1340,100 @@ def create_contribution_choropleth(data: pd.DataFrame):
             lakecolor='rgba(127,205,255,0.1)'
         ),
         template='plotly_white',
-        height=500,
-        margin=dict(l=20, r=20, t=60, b=20),
+        height=550,  # Increased height to accommodate buttons
+        margin=dict(l=20, r=20, t=80, b=20),  # Increased top margin for buttons
         modebar_remove=['zoom', 'pan', 'lasso', 'select']
     )
 
-    # Add dropdowns
-    button_layer_1_height = 1.02
+    # Position buttons in top corners to avoid overlap
     fig.update_layout(
-    updatemenus=[
-        dict(
-            buttons=list([
-                dict(
-                    args=["colorscale", "Viridis"],
-                    label="Viridis",
-                    method="restyle"
-                ),
-                dict(
-                    args=["colorscale", "Cividis"],
-                    label="Cividis",
-                    method="restyle"
-                ),
-                dict(
-                    args=["colorscale", "Reds"],
-                    label="Reds",
-                    method="restyle"
-                ),
-                dict(
-                    args=["colorscale", "Blues"],
-                    label="Blues",
-                    method="restyle"
-                ),
-                dict(
-                    args=["colorscale", "Greens"],
-                    label="Greens",
-                    method="restyle"
-                ),
-                dict(
-                    args=["colorscale", "Jet"],
-                    label="Rainbow",
-                    method="restyle"
-                ),
-            ]),
-            direction="down",
-            pad={"r": 10, "t": 10},
-            showactive=True,
-            x=0.1,
-            xanchor="left",
-            y=button_layer_1_height,
-            yanchor="top"
-        ),
-        dict(
-            buttons=list([
-                dict(
-                    args=["reversescale", False],
-                    label="False",
-                    method="restyle"
-                ),
-                dict(
-                    args=["reversescale", True],
-                    label="True",
-                    method="restyle"
-                )
-            ]),
-            direction="down",
-            pad={"r": 10, "t": 10},
-            showactive=True,
-            x=0.37,
-            xanchor="left",
-            y=button_layer_1_height,
-            yanchor="top"
-        ),
-    ]
+        updatemenus=[
+            dict(
+                buttons=list([
+                    dict(
+                        args=["colorscale", "Viridis"],
+                        label="Viridis",
+                        method="restyle"
+                    ),
+                    dict(
+                        args=["colorscale", "Cividis"],
+                        label="Cividis",
+                        method="restyle"
+                    ),
+                    dict(
+                        args=["colorscale", "Reds"],
+                        label="Reds",
+                        method="restyle"
+                    ),
+                    dict(
+                        args=["colorscale", "Blues"],
+                        label="Blues",
+                        method="restyle"
+                    ),
+                    dict(
+                        args=["colorscale", "Greens"],
+                        label="Greens",
+                        method="restyle"
+                    ),
+                    dict(
+                        args=["colorscale", "Jet"],
+                        label="Rainbow",
+                        method="restyle"
+                    ),
+                ]),
+                direction="down",
+                pad={"r": 10, "t": 10},
+                showactive=True,
+                x=0.02,  # Left side
+                xanchor="left",
+                y=0.98,  # Top
+                yanchor="top"
+            ),
+            dict(
+                buttons=list([
+                    dict(
+                        args=["reversescale", False],
+                        label="Normal",
+                        method="restyle"
+                    ),
+                    dict(
+                        args=["reversescale", True],
+                        label="Reversed",
+                        method="restyle"
+                    )
+                ]),
+                direction="down",
+                pad={"r": 10, "t": 10},
+                showactive=True,
+                x=0.98,  # Right side
+                xanchor="right",
+                y=0.98,  # Top
+                yanchor="top"
+            ),
+        ],
+        annotations=[
+            dict(
+                text="Colorscale", 
+                x=0.02, 
+                xref="paper", 
+                y=1.02, 
+                yref="paper",
+                align="left", 
+                showarrow=False,
+                font=dict(size=12)
+            ),
+            dict(
+                text="Reverse", 
+                x=0.98, 
+                xref="paper", 
+                y=1.02,
+                yref="paper", 
+                align="right", 
+                showarrow=False,
+                font=dict(size=12)
+            )
+        ]
     )
-
-    fig.update_layout(
-    annotations=[
-        dict(text="Colorscale", x=0, xref="paper", y=1.04, yref="paper",
-                             align="left", showarrow=False),
-        dict(text="Reverse Colorscale", x=0.25, xref="paper", y=1.04,
-                             yref="paper", showarrow=False)
-    ])
 
     return fig
 
