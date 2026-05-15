@@ -37,10 +37,28 @@ Before you start, make sure you have:
 ssh your-username@your-server-ip
 ```
 
-**Step 2: Navigate to the App Directory**
+**Step 2: Find and Navigate to the App Directory**
+
+Your app files might be in different locations depending on your Azure setup. Try these locations in order:
+
 ```bash
-cd /home/santi/projects/ShinyServer_Azure/ShinyServer_Azure/shiny-apps-backup/CS-Explorer-App
+# Most common - try first:
+cd /srv/shiny-server/CS-Explorer-App
+
+# If not found, try user directory (if you have access):
+cd /home/marisol/ShinyServer_Azure/shiny-apps-backup/CS-Explorer-App
+
+# If still not found, search for it:
+find /srv /home -name "CS-Explorer-App" -type d 2>/dev/null
+# Then cd to the path you find
 ```
+
+If you're not sure which one is correct, ask your server administrator or check the Shiny configuration:
+```bash
+sudo cat /etc/shiny-server/shiny-server.conf | grep site_dir
+```
+
+**Note:** The rest of the instructions are the same regardless of which location you use.
 
 **Step 3: Download the Latest Changes**
 ```bash
@@ -62,9 +80,14 @@ Done! The app should now show the new article link and landing page.
 
 If you don't have Git access or prefer to update manually:
 
-**Step 1: Back up current files**
+**Step 1: Find and Navigate to the App Directory**
+
+(Same as Option A, Step 2 above - find your app location first)
+
+**Step 2: Back up current files**
 ```bash
-cd /home/santi/projects/ShinyServer_Azure/ShinyServer_Azure/shiny-apps-backup/CS-Explorer-App
+# First, navigate to your app directory as in Step 1 above
+# Then create backups:
 cp app.py app.py.backup
 cp ../index.html ../index.html.backup
 ```
