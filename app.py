@@ -5,7 +5,6 @@ from plotly.subplots import make_subplots
 import geopandas as gpd
 
 from folium import plugins
-import streamlit as st
 from shiny import App, ui, render, reactive
 from shiny.types import FileInfo
 import asyncio
