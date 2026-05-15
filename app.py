@@ -105,7 +105,7 @@ def create_app():
                         ui.p(
                             ui.tags.span("Source: "),
                             ui.tags.a("Bermúdez-Montaña, M., et al. (2025). China's rise in the chemical space and the decline of US influence.", 
-                                  href="https://chemrxiv.org/engage/chemrxiv/article-details/67920ada6dde43c908f688f6",
+                                  href="https://doi.org/10.1162/QSS.a.471",
                                   target="_blank"),
                             style="text-align: center; margin-bottom: 30px; font-size: 0.9em; color: #666; font-style: italic;"
                         ),
@@ -326,8 +326,8 @@ def create_app():
             ui.p(
                 "Source: Bermúdez-Montaña, M., et al. (2025). China's rise in the chemical space and the decline of US influence. ",
                 ui.tags.i("ChemRxiv link: "),
-                ui.tags.a("https://chemrxiv.org/engage/chemrxiv/article-details/67920ada6dde43c908f688f6", 
-                          href="https://chemrxiv.org/engage/chemrxiv/article-details/67920ada6dde43c908f688f6", 
+                ui.tags.a("https://doi.org/10.1162/QSS.a.471", 
+                          href="https://doi.org/10.1162/QSS.a.471", 
                           target="_blank"),
                 style="text-align: center; padding: 10px; font-size: 0.9em; color: #777;"
             )

@@ -12,7 +12,7 @@ The project consists of the following files and directories:
 - `utils/__init__.py`: Marks the `utils` directory as a Python package.
 - `utils/functions.py`: Contains utility functions for data processing and visualization.
 - `www/styles.css`: Custom CSS styles for the application's UI.
-- `www/original_article.pdf`: A PDF document providing access to the original article referenced in the app.
+- `www/qss.a.471.pdf`: A PDF document of the published article referenced in the app.
 
 ## Installation
 To set up the project, follow these steps:
