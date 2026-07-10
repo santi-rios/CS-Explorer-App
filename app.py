@@ -204,9 +204,16 @@ def create_app():
                                     ),
                                 ui.row(
                                     ui.column(4,
-                                        ui.input_select(
-                                            "chemical_category", "🧪 Chemical Space:",
-                                            choices=initial_data['chemical_categories'], selected="All"
+                                        ui.input_radio_buttons(
+                                            "chemical_category", "🧪 Select Chemical Subspace:",
+                                            choices={
+                                                "All": "All Substances (Total CS)",
+                                                "Organic": "Organic (Carbon-based)",
+                                                "Organometallic": "Organometallic (Carbon + Metals)",
+                                                "REE": "Rare-earth Elements (REE)"
+                                            },
+                                            selected="All",
+                                            inline=True
                                         ),
                                     ),
                                 ),

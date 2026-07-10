@@ -426,6 +426,20 @@ def create_trends_plot(data: pd.DataFrame, selected_countries: List[str], mode: 
             xref="paper", yref="paper",
             x=0.5, y=0.5, showarrow=False, font=dict(size=14)
         )
+        # Add historical context markers for CS perturbations
+    fig.add_vline(x=2008, line_dash="dot", line_color="rgba(128, 128, 128, 0.5)")
+    fig.add_vline(x=2020, line_dash="dot", line_color="rgba(128, 128, 128, 0.5)")
+    
+    if fig.data:
+        max_val = max([max(trace['y']) for trace in fig.data if len(trace['y']) > 0])
+        fig.add_annotation(
+            x=2008, y=max_val * 0.95, text="Financial Crisis", 
+            showarrow=False, textangle=-90, font=dict(size=10, color="gray"), xshift=-10
+        )
+        fig.add_annotation(
+            x=2020, y=max_val * 0.95, text="COVID-19", 
+            showarrow=False, textangle=-90, font=dict(size=10, color="gray"), xshift=-10
+        )
         fig.update_layout(xaxis=dict(visible=False), yaxis=dict(visible=False), template='plotly_white')
         return fig
     
@@ -502,13 +516,12 @@ def create_trends_plot(data: pd.DataFrame, selected_countries: List[str], mode: 
                     color=collab_type_colors.get(collab_type, collab_type_colors["Unknown"])
                 ),
                 hovertemplate=(
-                    f"<b>Collaboration: {display_name}</b><br>" +
-                    f"Type: {collab_type}<br>" +
+                    f"<b>Collaboration Network:</b><br>" +
+                    f"Partners: {display_name.replace(' + ', ' 🤝 ')}<br>" +
+                    f"Complexity: {collab_type}<br>" +
                     "Year: %{x}<br>" +
-                    f"Contribution: %{{y:.2f}}%<extra></extra>"
-                ),
-                meta=collab_type
-            ))
+                    f"Share of New Substances: %{{y:.2f}}%<extra></extra>"
+                ),)
     
     # --- Layout and Interactivity Improvements ---
     legend_config = {
@@ -1261,180 +1274,37 @@ def create_folium_map(country_list: pd.DataFrame, selected_countries: List[str])
     
     return m
 
-
 def create_contribution_choropleth(data: pd.DataFrame):
-    """Create world choropleth map with proper color scaling"""
-    value_column = 'total_percentage'
-
-    if value_column not in data.columns or data.empty:
+    """Create animated world choropleth map"""
+    if data.empty or 'total_percentage' not in data.columns:
         return create_empty_plot("No data available for choropleth")
     
-    # Calculate average percentage per country
-    avg_data = (
-        data.groupby(['iso3c', 'country'], as_index=False)
-        .agg({
-            'total_percentage': 'mean',
-            'region': 'first'
-        })
-        .round(2)
+    # Sort by year to ensure animation frames play sequentially
+    anim_data = data.sort_values('year').dropna(subset=['total_percentage'])
+    
+    fig = px.choropleth(
+        anim_data,
+        locations="iso3c",
+        color="total_percentage",
+        hover_name="country",
+        animation_frame="year",
+        color_continuous_scale="Viridis",
+        range_color=[0, anim_data['total_percentage'].max()],
+        projection="robinson",
+        labels={'total_percentage': 'Contribution (%)'}
     )
     
-    if avg_data.empty:
-        return create_empty_plot("No aggregated data for choropleth")
-
-    # Ensure we have valid data for plotting
-    avg_data = avg_data.dropna(subset=['total_percentage'])
-    
-    if avg_data.empty:
-        return create_empty_plot("No valid data after removing NaN values")
-
-    # Create choropleth with explicit color range
-    min_val = avg_data['total_percentage'].min()
-    max_val = avg_data['total_percentage'].max()
-    
-    # Handle case where all values are the same
-    if min_val == max_val:
-        color_range = [max(0, min_val - 0.1), min_val + 0.1]
-    else:
-        color_range = [min_val, max_val]
-
-    fig = go.Figure(data=go.Choropleth(
-        locations=avg_data['iso3c'],
-        z=avg_data['total_percentage'],
-        locationmode='ISO-3',
-        colorscale='Viridis',
-        reversescale=False,
-        zmid=None,  # Let plotly handle the midpoint
-        zmin=color_range[0],
-        zmax=color_range[1],
-        hovertemplate=(
-            "<b>%{customdata[0]}</b> (%{location})<br>" +
-            "Avg Contribution: %{z:.2f}%<br>" +
-            "Region: %{customdata[1]}<extra></extra>"
-        ),
-        customdata=avg_data[['country', 'region']].values,
-        colorbar=dict(
-            title="Avg. Contribution",
-            orientation = "h",
-            yanchor="bottom",
-            y=0.02,
-            xanchor="left",
-            x=0.1,
-            ticklabelstep = 4,
-            ticksuffix = "%",
-            tickmode="linear",
-            tick0=color_range[0],
-            dtick=max(0.5, (color_range[1] - color_range[0]) / 10)
-        ),
-        showscale=True
-    ))
-    
     fig.update_layout(
-        geo=dict(
-            showframe=False,
-            showcoastlines=True,
-            coastlinecolor="lightgray",
-            projection_type='robinson',
-            bgcolor='rgba(0,0,0,0)',
-            showlakes=True,
-            lakecolor='rgba(127,205,255,0.1)'
-        ),
+        geo=dict(showframe=False, showcoastlines=True, coastlinecolor="lightgray"),
         template='plotly_white',
-        height=550,  # Increased height to accommodate buttons
-        margin=dict(l=20, r=20, t=80, b=20),  # Increased top margin for buttons
-        modebar_remove=['zoom', 'pan', 'lasso', 'select']
+        height=550,
+        margin=dict(l=0, r=0, t=30, b=0)
     )
-
-    # Position buttons in top corners to avoid overlap
-    fig.update_layout(
-        updatemenus=[
-            dict(
-                buttons=list([
-                    dict(
-                        args=["colorscale", "Viridis"],
-                        label="Viridis",
-                        method="restyle"
-                    ),
-                    dict(
-                        args=["colorscale", "Cividis"],
-                        label="Cividis",
-                        method="restyle"
-                    ),
-                    dict(
-                        args=["colorscale", "Reds"],
-                        label="Reds",
-                        method="restyle"
-                    ),
-                    dict(
-                        args=["colorscale", "Blues"],
-                        label="Blues",
-                        method="restyle"
-                    ),
-                    dict(
-                        args=["colorscale", "Greens"],
-                        label="Greens",
-                        method="restyle"
-                    ),
-                    dict(
-                        args=["colorscale", "Jet"],
-                        label="Rainbow",
-                        method="restyle"
-                    ),
-                ]),
-                direction="down",
-                pad={"r": 10, "t": 10},
-                showactive=True,
-                x=0.02,  # Left side
-                xanchor="left",
-                y=0.98,  # Top
-                yanchor="top"
-            ),
-            dict(
-                buttons=list([
-                    dict(
-                        args=["reversescale", False],
-                        label="Normal",
-                        method="restyle"
-                    ),
-                    dict(
-                        args=["reversescale", True],
-                        label="Reversed",
-                        method="restyle"
-                    )
-                ]),
-                direction="down",
-                pad={"r": 10, "t": 10},
-                showactive=True,
-                x=0.98,  # Right side
-                xanchor="right",
-                y=0.98,  # Top
-                yanchor="top"
-            ),
-        ],
-        annotations=[
-            dict(
-                text="Colorscale", 
-                x=0.02, 
-                xref="paper", 
-                y=1.02, 
-                yref="paper",
-                align="left", 
-                showarrow=False,
-                font=dict(size=12)
-            ),
-            dict(
-                text="Reverse", 
-                x=0.98, 
-                xref="paper", 
-                y=1.02,
-                yref="paper", 
-                align="right", 
-                showarrow=False,
-                font=dict(size=12)
-            )
-        ]
-    )
-
+    
+    # Improve animation speed and transition
+    fig.layout.updatemenus[0].buttons[0].args[1]["frame"]["duration"] = 600
+    fig.layout.updatemenus[0].buttons[0].args[1]["transition"]["duration"] = 300
+    
     return fig
 
 def create_summary_dataframe(data: pd.DataFrame, mode: str) -> pd.DataFrame:
@@ -1614,7 +1484,20 @@ def create_cs_expansion_plot(data: pd.DataFrame):
             line=dict(width=2),
             # marker=dict(size=6)
         ))
+    # Add historical context markers for CS perturbations
+    fig.add_vline(x=2008, line_dash="dot", line_color="rgba(128, 128, 128, 0.5)")
+    fig.add_vline(x=2020, line_dash="dot", line_color="rgba(128, 128, 128, 0.5)")
     
+    if fig.data:
+        max_val = max([max(trace['y']) for trace in fig.data if len(trace['y']) > 0])
+        fig.add_annotation(
+            x=2008, y=max_val * 0.95, text="Financial Crisis", 
+            showarrow=False, textangle=-90, font=dict(size=10, color="gray"), xshift=-10
+        )
+        fig.add_annotation(
+            x=2020, y=max_val * 0.95, text="COVID-19", 
+            showarrow=False, textangle=-90, font=dict(size=10, color="gray"), xshift=-10
+        )
     fig.update_layout(
         yaxis = dict(
             fixedrange = True,
