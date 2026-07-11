@@ -509,6 +509,7 @@ def create_trends_plot(data: pd.DataFrame, selected_countries: List[str], mode: 
                 y=collab_data_for_trace[value_column],
                 mode='lines+markers',
                 name=display_name,
+                meta=collab_type,
                 showlegend=True,
                 line=dict(color=collab_type_colors.get(collab_type, collab_type_colors["Unknown"]), width=1.5),
                 marker=dict(
@@ -521,7 +522,8 @@ def create_trends_plot(data: pd.DataFrame, selected_countries: List[str], mode: 
                     f"Complexity: {collab_type}<br>" +
                     "Year: %{x}<br>" +
                     f"Share of New Substances: %{{y:.2f}}%<extra></extra>"
-                ),)
+                ),
+            ))
     
     # --- Layout and Interactivity Improvements ---
     legend_config = {
