@@ -1,6 +1,7 @@
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+import plotly.offline as plotly_offline
 from plotly.subplots import make_subplots
 import geopandas as gpd
 
@@ -18,6 +19,11 @@ from folium.plugins import Draw
 from utils.functions import get_display_data, create_folium_map, create_trends_plot, create_contribution_choropleth, create_summary_dataframe, create_article_plot, create_top_trends_plot, create_empty_plot, create_gdp_plot, create_researchers_plot, create_cs_expansion_plot, create_china_us_dual_axis_plot
 import functools
 from functools import lru_cache
+
+
+def figure_to_html(fig):
+    """Render Plotly figures as embedded HTML so trace data is preserved."""
+    return ui.HTML(fig.to_html(include_plotlyjs=False, full_html=False, config={"responsive": True}))
 
 # Global cache for expensive operations
 @lru_cache(maxsize=128)
@@ -94,6 +100,7 @@ def create_app():
         }
 
     app_ui = ui.page_navbar(
+                
                 ui.nav_panel(
                     "Dashboard", 
                     ui.div(
@@ -140,7 +147,7 @@ def create_app():
                                                       ui.card(
                                                           ui.p("Main countries contributing to the chemical space (CS) from 1996 to 2022.",
                                                                 style="margin-bottom: 10px; font-size: 0.9em; color: #666; text-align: center;"),
-                                                          output_widget("country_cs_plot"),
+                                                          ui.output_ui("country_cs_plot"),
                                                           ui.p("Hide a Country by clicking on its name in the legend. Double-click to isolate it.",
                                                                 style="margin-top: 10px; font-size: 0.9em; color: #666; text-align: center;")
                                                       )
@@ -150,7 +157,7 @@ def create_app():
                                                       ui.card(
                                                           ui.p("Percentage of new substances with participation of China or the US resulting from China-US collaboration (right axis). Left axis show the percentage of new substances with participation of country (China or US) that are reported in papers with no international collaboration.",
                                                                 style="margin-bottom: 10px; font-size: 0.9em; color: #666; text-align: center;"),
-                                                          output_widget("china_us_plot"),
+                                                          ui.output_ui("china_us_plot"),
                                                           ui.p("Hide a Country by clicking on its name in the top legend. Double-click to isolate it.",
                                                                 style="margin-top: 10px; font-size: 0.9em; color: #666; text-align: center;")
                                                       )
@@ -160,7 +167,7 @@ def create_app():
                                                       ui.card(
                                                           ui.p("Percentage of the annual growth rate of the gross domestic product (GDP) per capita",
                                                                 style="margin-bottom: 10px; font-size: 0.9em; color: #666; text-align: center;"),
-                                                          output_widget("article_gdp_plot")
+                                                          ui.output_ui("article_gdp_plot")
                                                       )
                                                   ),
                                                   ui.nav_panel(
@@ -168,7 +175,7 @@ def create_app():
                                                       ui.card(
                                                           ui.p("Number of researchers in research and development activities",
                                                                 style="margin-bottom: 10px; font-size: 0.9em; color: #666; text-align: center;"),
-                                                          output_widget("article_researchers_plot")
+                                                          ui.output_ui("article_researchers_plot")
                                                       )
                                                   ),
                                                   ui.nav_panel(
@@ -176,7 +183,7 @@ def create_app():
                                                       ui.card(
                                                           ui.p("Recent expansion of the CS and of three of its subspaces",
                                                                 style="margin-bottom: 10px; font-size: 0.9em; color: #666; text-align: center;"),
-                                                          output_widget("article_cs_expansion_plot")
+                                                          ui.output_ui("article_cs_expansion_plot")
                                                       )
                                                   ),
                                               ),
@@ -210,7 +217,7 @@ def create_app():
                                                 "All": "All Substances (Total CS)",
                                                 "Organic": "Organic (Carbon-based)",
                                                 "Organometallic": "Organometallic (Carbon + Metals)",
-                                                "REE": "Rare-earth Elements (REE)"
+                                                "Rare-Earths": "Rare-earth Elements (REE)"
                                             },
                                             selected="All",
                                             inline=True
@@ -269,14 +276,14 @@ def create_app():
 
                             # --- Plots Section (unchanged) ---
                             ui.navset_card_tab( 
-                                ui.nav_panel("📈 Trends", output_widget("main_plot")),
+                                ui.nav_panel("📈 Trends", ui.output_ui("main_plot")),
                                 ui.nav_panel(
                                     "🌎 Global Snapshot",
                                     ui.p(
                                         "This plot shows the global or regional snapshot of the chemical space contributions by countries, highlighting the average contributions based on the year range selected (defaults to 1996-2022).",
                                         style="font-size: 0.9em; color: #666; text-align: center;"
                                     ), 
-                                    output_widget("contribution_map")
+                                    ui.output_ui("contribution_map")
                                     ),
                                 ui.nav_panel("📋 Data Table", ui.output_data_frame("summary_table"))
                             )
@@ -294,7 +301,7 @@ def create_app():
                                                   ui.p("When viewing collaborations, Blue Colors represent Countries Collaborations with the US",
                                                        style="font-size: 0.9em; color: #666; text-align: center;")
                                               ),
-                                              output_widget("article_top_collabs_plot"),
+                                              ui.output_ui("article_top_collabs_plot"),
                                               ui.p("Legend is sorted by the average contribution (shown in parenthesis) of the collaboration/country to the CS between 1996 to 2022.",
                                                   style="font-size: 0.9em; color: #666; text-align: center;"),
                                               class_="border rounded p-3 bg-light", 
@@ -328,6 +335,7 @@ def create_app():
                 style="padding: 20px;"
             )
         ),
+        header=ui.tags.script(plotly_offline.get_plotlyjs()),
         title="Chemical Space Explorer 🧪",
         footer=ui.div(
             ui.hr(),
@@ -452,7 +460,7 @@ def create_app():
             return ui.HTML(m._repr_html_())
             
         @output  
-        @render_widget
+        @render.ui
         def main_plot():
             """Main trends plot with validation"""
             current_mode = input.display_mode_input()
@@ -460,22 +468,22 @@ def create_app():
             
             # Validate collaboration mode
             if current_mode == "find_collaborations" and len(selected) < 2:
-                return create_empty_plot(
+                return figure_to_html(create_empty_plot(
                     "🤝 Select at least 2 countries to find collaborations.\n"
                     "Click on countries in the map above."
-                )
+                ))
             
             data = filtered_data()
             if data.empty:
                 if current_mode == "find_collaborations":
-                    return create_empty_plot("No collaborations found for selected countries and filters.")
+                    return figure_to_html(create_empty_plot("No collaborations found for selected countries and filters."))
                 else:
-                    return create_empty_plot("Select countries from the map to view trends.")
-                
-            return create_trends_plot(data, selected, current_mode)
+                    return figure_to_html(create_empty_plot("Select countries from the map to view trends."))
+
+                return figure_to_html(create_trends_plot(data, selected, current_mode))
             
         @output
-        @render_widget  
+        @render.ui  
         def contribution_map():
             """Fixed contribution choropleth map"""
             try:
@@ -492,7 +500,7 @@ def create_app():
                 isos_for_choropleth = countries_for_choropleth['iso2c'].unique().tolist()
                 
                 if not isos_for_choropleth:
-                     return create_empty_plot(f"No countries found for region: {current_region_filter}")
+                     return figure_to_html(create_empty_plot(f"No countries found for region: {current_region_filter}"))
         
                 # Filter data for choropleth - use all available data, not just selected countries
                 choropleth_data = get_display_data(
@@ -506,18 +514,18 @@ def create_app():
                 )
                 
                 if choropleth_data.empty:
-                    return create_empty_plot("No data for global map with current selections")
+                    return figure_to_html(create_empty_plot("No data for global map with current selections"))
                 
                 # Debug info - you can remove this later
                 # print(f"Choropleth data shape: {choropleth_data.shape}")
                 # print(f"Countries with data: {choropleth_data['iso2c'].nunique()}")
                 # print(f"Value range: {choropleth_data['total_percentage'].min():.2f} - {choropleth_data['total_percentage'].max():.2f}")
                     
-                return create_contribution_choropleth(choropleth_data)
+                return figure_to_html(create_contribution_choropleth(choropleth_data))
                 
             except Exception as e:
                 print(f"Error in contribution_map: {str(e)}")
-                return create_empty_plot(f"Error creating map: {str(e)}")
+                return figure_to_html(create_empty_plot(f"Error creating map: {str(e)}"))
             
         @output
         @render.data_frame
@@ -536,23 +544,23 @@ def create_app():
 
         # Article plot outputs with lazy loading
         @output
-        @render_widget
+        @render.ui
         def country_cs_plot():
             try:
                 article_data = load_article_data()
                 if article_data.empty:
-                    return create_empty_plot("No article data available")
+                    return figure_to_html(create_empty_plot("No article data available"))
                 
                 df_filtered = article_data[article_data['source'] == "Country participation in the CS"]
                 if df_filtered.empty:
-                    return create_empty_plot("No country participation data available")
+                    return figure_to_html(create_empty_plot("No country participation data available"))
                 
-                return create_article_plot(df_filtered, "Country participation in the growth of the CS")
+                return figure_to_html(create_article_plot(df_filtered, "Country participation in the growth of the CS"))
             except Exception as e:
-                return create_empty_plot(f"Error loading article data: {str(e)}")
+                return figure_to_html(create_empty_plot(f"Error loading article data: {str(e)}"))
 
         @output
-        @render_widget
+        @render.ui
         def article_top_collabs_plot():
             try:
                 df = pd.read_parquet("./data/data.parquet")
@@ -565,7 +573,7 @@ def create_app():
                 ]
                 
                 if filtered_data.empty:
-                    return create_empty_plot("No data available")
+                    return figure_to_html(create_empty_plot("No data available"))
                     
                 # Get top 10
                 top_data = (
@@ -575,77 +583,77 @@ def create_app():
                     .head(10)
                 )
                 
-                return create_top_trends_plot(
+                return figure_to_html(create_top_trends_plot(
                     filtered_data[filtered_data['country'].isin(top_data.index)],
                     f"Top 10 {'Collaborations' if is_collab else 'Countries'}: {chem_filter} 'Chemicals'" 
-                )
+                ))
             except Exception as e:
-                return create_empty_plot(f"Error: {str(e)}")
+                return figure_to_html(create_empty_plot(f"Error: {str(e)}"))
 
         @output
-        @render_widget
+        @render.ui
         def article_gdp_plot():
             try:
                 article_data = load_article_data()
                 if article_data.empty:
-                    return create_dummy_gdp_plot()
+                    return figure_to_html(create_empty_plot("No GDP data available"))
                 
                 gdp_data = article_data[article_data['source'] == "Annual growth rate of the GDP"]
                 if gdp_data.empty:
-                    return create_dummy_gdp_plot()
+                    return figure_to_html(create_empty_plot("No GDP data available"))
                     
-                return create_gdp_plot(gdp_data)
+                return figure_to_html(create_gdp_plot(gdp_data))
             except Exception as e:
-                return create_dummy_gdp_plot()
+                return figure_to_html(create_empty_plot(f"Error: {str(e)}"))
 
         @output
-        @render_widget
+        @render.ui
         def article_researchers_plot():
             try:
                 article_data = load_article_data()
                 if article_data.empty:
-                    return create_dummy_researchers_plot()
+                    return figure_to_html(create_empty_plot("No researchers data available"))
                 
                 researchers_data = article_data[article_data['source'] == "Number of Researchers"]
                 if researchers_data.empty:
-                    return create_dummy_researchers_plot()
+                    return figure_to_html(create_empty_plot("No researchers data available"))
                     
-                return create_researchers_plot(researchers_data)
+                return figure_to_html(create_researchers_plot(researchers_data))
             except Exception as e:
-                return create_dummy_researchers_plot()
+                return figure_to_html(create_empty_plot(f"Error: {str(e)}"))
 
         @output
-        @render_widget
+        @render.ui
         def article_cs_expansion_plot():
             try:
                 article_data = load_article_data()
                 if article_data.empty:
-                    return create_dummy_cs_expansion_plot()
+                    return figure_to_html(create_empty_plot("No CS expansion data available"))
                 
                 cs_data = article_data[article_data['source'] == "Expansion of the CS"]
                 if cs_data.empty:
-                    return create_dummy_cs_expansion_plot()
+                    return figure_to_html(create_empty_plot("No CS expansion data available"))
                     
-                return create_cs_expansion_plot(cs_data)
+                return figure_to_html(create_cs_expansion_plot(cs_data))
             except Exception as e:
-                return create_dummy_cs_expansion_plot()
+                return figure_to_html(create_empty_plot(f"Error: {str(e)}"))
 
         @output
-        @render_widget
+        @render.ui
         def china_us_plot():
             try:
                 article_data = load_article_data()
                 if article_data.empty:
-                    return create_dummy_cs_expansion_plot() # Or create_empty_plot("No data for China-US plot")
+                    return figure_to_html(create_empty_plot("No data for China-US plot"))
                 
                 cs_data = article_data[article_data['source'] == "China-US in the CS"]
                 if cs_data.empty:
-                    return create_dummy_cs_expansion_plot() # Or create_empty_plot("No 'China-US in the CS' data found")
+                    return figure_to_html(create_empty_plot("No 'China-US in the CS' data found"))
                     
-                return create_china_us_dual_axis_plot(cs_data) # Use the new function
+                return figure_to_html(create_china_us_dual_axis_plot(cs_data))
             except Exception as e:
                 # Consider logging the error e
-                return create_dummy_cs_expansion_plot() # Or create_empty_plot(f"Error: {str(e)}")
+                return figure_to_html(create_empty_plot(f"Error: {str(e)}"))
         
     return App(app_ui, server)
 
