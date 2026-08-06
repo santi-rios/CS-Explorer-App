@@ -20,9 +20,9 @@ import functools
 from functools import lru_cache
 
 
-def figure_to_html(fig):
-    """Render Plotly figures as embedded HTML so trace data is preserved."""
-    return ui.HTML(fig.to_html(include_plotlyjs=False, full_html=False, config={"responsive": True}))
+# Added .resolve() to guarantee an absolute path (e.g., /home/santi/projects/...)
+www_dir = Path(__file__).resolve().parent / "www"
+
 
 # Global cache for expensive operations
 @lru_cache(maxsize=128)
@@ -64,6 +64,10 @@ def load_country_list():
         .sort_values('country')
         .reset_index(drop=True)
     )
+
+def figure_to_html(fig):
+    """Render Plotly figures as embedded HTML so trace data is preserved."""
+    return ui.HTML(fig.to_html(include_plotlyjs=False, full_html=False, config={"responsive": True}))
 
 # Main application
 def create_app():
@@ -313,13 +317,13 @@ def create_app():
                     # The ui.hr separator is removed as tabs provide separation.
                 ),
         # --- Other nav panels remain for auxiliary content ---
-        # ui.nav_panel(
-        #     "📖 Original Article",
-        #     ui.tags.iframe(
-        #         src="original_article.pdf", # www/ directory
-        #         style="width: 100%; height: 80vh; border: none;"
-        #     )
-        # ),
+        ui.nav_panel(
+            "📖 Original Article",
+            ui.tags.iframe(
+                src="chemrxiv-2025-d2zc8.pdf", # www/ directory
+                style="width: 100%; height: 80vh; border: none;"
+            )
+        ),
         ui.nav_panel(
             "🔗 Useful Links",
             ui.div(
@@ -541,7 +545,6 @@ def create_app():
                 
             return create_summary_dataframe(data, input.display_mode_input())
 
-        # Article plot outputs with lazy loading
         @output
         @render.ui
         def country_cs_plot():
@@ -574,7 +577,6 @@ def create_app():
                 if filtered_data.empty:
                     return figure_to_html(create_empty_plot("No data available"))
                     
-                # Get top 10
                 top_data = (
                     filtered_data.groupby('country')['percentage']
                     .mean()
@@ -651,11 +653,12 @@ def create_app():
                     
                 return figure_to_html(create_china_us_dual_axis_plot(cs_data))
             except Exception as e:
-                # Consider logging the error e
                 return figure_to_html(create_empty_plot(f"Error: {str(e)}"))
-        
-    return App(app_ui, server)
 
+    # ADD THIS LINE EXACTLY HERE:
+    return App(app_ui, server, static_assets=www_dir)
+
+# --- PASTING THE MISSING FUNCTION BACK IN ---
 # Cached helper functions
 @lru_cache(maxsize=1)
 def load_article_data():
@@ -674,6 +677,7 @@ def load_article_data():
         return pd.DataFrame()
     except Exception:
         return pd.DataFrame()
+# --------------------------------------------
 
 # Create and run the app
 app = create_app()
