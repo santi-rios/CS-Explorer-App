@@ -15,7 +15,15 @@ from typing import List, Dict, Optional, Tuple
 import json
 from shinywidgets import render_widget, output_widget
 from folium.plugins import Draw
-from utils.functions import get_display_data, create_folium_map, create_trends_plot, create_contribution_choropleth, create_summary_dataframe, create_article_plot, create_top_trends_plot, create_empty_plot, create_gdp_plot, create_researchers_plot, create_cs_expansion_plot, create_china_us_dual_axis_plot
+from utils.functions import (
+    get_display_data, create_folium_map, create_trends_plot,
+    create_contribution_choropleth, 
+    create_contribution_map_plot,
+    create_summary_dataframe, create_article_plot, create_top_trends_plot,
+    create_empty_plot, create_gdp_plot, create_researchers_plot,
+    create_cs_expansion_plot, create_china_us_dual_axis_plot,
+    get_raw_dataframe, get_world_geometries
+)
 import functools
 from functools import lru_cache
 
@@ -38,7 +46,7 @@ def cached_get_display_data(
     selected_isos = list(selected_isos_tuple) if selected_isos_tuple else []
     
     # Only load data when actually needed
-    df = pd.read_parquet("./data/data.parquet")
+    df = get_raw_dataframe()
     country_list = load_country_list()
     
     return get_display_data(
@@ -54,7 +62,7 @@ def cached_get_display_data(
 @lru_cache(maxsize=1)
 def load_country_list():
     """Cached country list loading"""
-    df = pd.read_parquet("./data/data.parquet")
+    df = get_raw_dataframe()
     return (
         df[df['is_collab'] == False]
         .drop_duplicates(subset=['country', 'iso2c', 'lat', 'lng', 'cc', 'region'])
@@ -68,6 +76,8 @@ def load_country_list():
 def figure_to_html(fig):
     """Render Plotly figures as embedded HTML so trace data is preserved."""
     return ui.HTML(fig.to_html(include_plotlyjs=False, full_html=False, config={"responsive": True}))
+
+
 
 # Main application
 def create_app():
@@ -86,11 +96,18 @@ def create_app():
         min_year = int(df_sample['year'].min())
         max_year = int(df_sample['year'].max())
         
+        countries_df = load_country_list()
+        country_choices = {
+            row['iso2c']: f"{row['country']} ({row['iso2c']})"
+            for _, row in countries_df.iterrows()
+        }
+
         initial_data = {
             'chemical_categories': chemical_categories,
             'regions': regions,
             'min_year': min_year,
-            'max_year': max_year
+            'max_year': max_year,
+            'country_choices': country_choices
         }
         
     except Exception as e:
@@ -99,7 +116,8 @@ def create_app():
             'chemical_categories': ["All"],
             'regions': ["All"],
             'min_year': 1996,
-            'max_year': 2022
+            'max_year': 2022,
+            'country_choices': initial_data
         }
 
     app_ui = ui.page_navbar(
@@ -232,25 +250,34 @@ def create_app():
                             ),
                             
                             # --- Map and Selection Section ---
-                            ui.card(
-                                ui.card_header("Interactive Map & Selection"),
-                                ui.row(
-                                    ui.column(9,
-                                        ui.output_ui("map_output")
-                                    ),
-                                    ui.column(3,
-                                        ui.div(
-                                            ui.input_action_button(
-                                                "clear_selection", "🗑️Reset",
-                                                class_="btn-outline-danger w-100 mb-3"
-                                            ),
-                                            ui.div(ui.output_text("selection_info"), class_="text-muted small")
-                                        )
-                                    )
-                                ),
-                                class_="border rounded p-1 mb-1"
+# --- Map and Selection Section ---
+                    ui.card(
+                        ui.card_header("Interactive Map & Selection"),
+                        ui.row(
+                            ui.column(8,
+                                ui.output_ui("map_output")
                             ),
-
+                            ui.column(4,
+                                ui.div(
+                                    ui.input_selectize(
+                                        "country_picker",
+                                        "🔍 Quick Search & Select Countries:",
+                                        choices=initial_data['country_choices'],
+                                        selected=[],
+                                        multiple=True,
+                                        remove_button=True,
+                                        options={"placeholder": "Type country name or ISO..."}
+                                    ),
+                                    ui.input_action_button(
+                                        "clear_selection", "🗑️ Reset Selection",
+                                        class_="btn-outline-danger w-100 mt-2 mb-3"
+                                    ),
+                                    ui.div(ui.output_text("selection_info"), class_="text-muted small")
+                                )
+                            )
+                        ),
+                        class_="border rounded p-1 mb-1"
+                    ),
                             # --- New Filter Section ---
                             ui.panel_well(
                                 ui.row(
@@ -277,20 +304,33 @@ def create_app():
                                 class_="bg-light border border-1 rounded p-1 mb-1"
                             ),
 
-                            # --- Plots Section (unchanged) ---
-                            ui.navset_card_tab( 
-                                ui.nav_panel("📈 Trends", ui.output_ui("main_plot")),
-                                ui.nav_panel(
-                                    "🌎 Global Snapshot",
-                                    ui.p(
-                                        "This plot shows the global or regional snapshot of the chemical space contributions by countries, highlighting the average contributions based on the year range selected (defaults to 1996-2022).",
-                                        style="font-size: 0.9em; color: #666; text-align: center;"
-                                    ), 
-                                    ui.output_ui("contribution_map")
-                                    ),
-                                ui.nav_panel("📋 Data Table", ui.output_data_frame("summary_table"))
-                            )
+# --- Plots Section ---
+                    ui.navset_card_tab( 
+                        ui.nav_panel("📈 Trends", ui.output_ui("main_plot")),
+                        ui.nav_panel(
+                            "🌎 Global Snapshot",
+                            ui.div(
+                                ui.input_radio_buttons(
+                                    "snapshot_mode",
+                                    "🗺️ Map View Mode:",
+                                    choices={
+                                        "static": "Period Average (Static Map)",
+                                        "animated": "Yearly Evolution (Animated)"
+                                    },
+                                    selected="static",
+                                    inline=True
+                                ),
+                                style="display: flex; justify-content: center; margin-bottom: 10px;"
+                            ),
+                            ui.p(
+                                "This plot shows the global or regional snapshot of the chemical space contributions by countries, highlighting either the average contribution over the selected year range or the year-by-year animated evolution.",
+                                style="font-size: 0.9em; color: #666; text-align: center;"
+                            ), 
+                            ui.output_ui("contribution_map")
                         ),
+                        ui.nav_panel("📋 Data Table", ui.output_data_frame("summary_table"))
+                    )
+                    ),
                         ui.nav_panel(
                             "🤝 Top Trends",
                             # Content from former "Top Collaborations plot" section
@@ -320,7 +360,7 @@ def create_app():
         ui.nav_panel(
             "📖 Original Article",
             ui.tags.iframe(
-                src="chemrxiv-2025-d2zc8.pdf", # www/ directory
+                src="original_final.pdf", # www/ directory
                 style="width: 100%; height: 80vh; border: none;"
             )
         ),
@@ -331,7 +371,7 @@ def create_app():
                 ui.tags.ul(
                     ui.tags.li(ui.tags.a("GitHub Repository", href="https://github.com/santi-rios/CS-Explorer-App", target="_blank")),
                     # ui.tags.li(ui.tags.a("Your Personal Webpage", href="YOUR_PERSONAL_WEBPAGE_LINK_HERE", target="_blank")),
-                    ui.tags.li(ui.tags.a("Site Builded by Santiago G-Rios", href="https://santi-rios.github.io/", target="_blank")),
+                    ui.tags.li(ui.tags.a("Site Built by Santiago G-Rios", href="https://santi-rios.github.io/", target="_blank")),
                 ),
                 # ui.h4("Contact"),
                 # ui.p("For questions or collaborations, please reach out to [Your Name/Email]."),
@@ -343,10 +383,10 @@ def create_app():
         footer=ui.div(
             ui.hr(),
             ui.p(
-                "Source: Bermúdez-Montaña, M., et al. (2025). China's rise in the chemical space and the decline of US influence. ",
-                ui.tags.i("ChemRxiv link: "),
+                "Source: Bermúdez-Montaña, M (Bermudez-Montana, Marisol) ; Garcia-Chung, A (Garcia-Chung, Angel) ; Stadler, PF (Stadler, Peter F.) ; Jost, J (Jost, Jurgen) ; Restrepo, G (Restrepo, Guillermo), (2025). China's rise in the chemical space and the decline of US influence. ",
+                ui.tags.i("Published in Quantitative Science Studies (MIT Press): "),
                 ui.tags.a("https://doi.org/10.1162/QSS.a.471", 
-                          href="https://doi.org/10.1162/QSS.a.471", 
+                          href="https://direct.mit.edu/qss/article/doi/10.1162/QSS.a.471/135818/Global-shifts-in-the-geopolitics-of-chemical", 
                           target="_blank"),
                 style="text-align: center; padding: 10px; font-size: 0.9em; color: #777;"
             )
@@ -394,30 +434,7 @@ def create_app():
                     region_filter=input.region_filter()
                 )
 
-        @reactive.Effect
-        @reactive.event(input.map_click_iso)
-        def _handle_map_click():
-            clicked_iso = input.map_click_iso()
-            if clicked_iso:
-                current_selection = list(selected_countries())
-                if clicked_iso in current_selection:
-                    current_selection.remove(clicked_iso)
-                else:
-                    current_selection.append(clicked_iso)
-                selected_countries.set(current_selection)
 
-        @reactive.Effect
-        @reactive.event(input.clear_selection)
-        def _clear_all_selections():
-            selected_countries.set([])
-
-        @reactive.Effect
-        @reactive.event(input.region_filter)
-        def _handle_region_change():
-            """Optional: Clear selections when region filter changes"""
-            # You can uncomment this if you want selections to clear when changing regions
-            # selected_countries.set([])
-            pass
 
         @output
         @render.text
@@ -485,47 +502,96 @@ def create_app():
 
                 return figure_to_html(create_trends_plot(data, selected, current_mode))
             
+# 1. Sync dropdown changes -> reactive selected_countries
+        @reactive.Effect
+        @reactive.event(input.country_picker, ignore_none=False, ignore_init=True)
+        def _sync_picker_to_selected():
+            picker_isos = list(input.country_picker() or [])
+            if picker_isos != selected_countries.get():
+                selected_countries.set(picker_isos)
+
+        # 2. Sync Folium map clicks -> reactive selected_countries AND dropdown
+        @reactive.Effect
+        @reactive.event(input.map_click_iso)
+        def _handle_map_click():
+            clicked_iso = input.map_click_iso()
+            if clicked_iso:
+                current_selection = list(selected_countries.get())
+                if clicked_iso in current_selection:
+                    current_selection.remove(clicked_iso)
+                else:
+                    current_selection.append(clicked_iso)
+                selected_countries.set(current_selection)
+                ui.update_selectize("country_picker", selected=current_selection)
+
+        # 3. Sync Reset button -> clear both reactive value and dropdown
+        @reactive.Effect
+        @reactive.event(input.clear_selection)
+        def _clear_all_selections():
+            selected_countries.set([])
+            ui.update_selectize("country_picker", selected=[])
+
+        # 4. Filter dropdown choices when Region Filter changes
+        @reactive.Effect
+        @reactive.event(input.region_filter, ignore_init=True)
+        def _handle_region_change():
+            all_countries = country_list()
+            current_region = input.region_filter()
+            if current_region != "All":
+                region_df = all_countries[all_countries['region'] == current_region]
+            else:
+                region_df = all_countries
+
+            new_choices = {
+                row['iso2c']: f"{row['country']} ({row['iso2c']})"
+                for _, row in region_df.iterrows()
+            }
+            valid_selected = [iso for iso in selected_countries.get() if iso in new_choices]
+            selected_countries.set(valid_selected)
+            ui.update_selectize("country_picker", choices=new_choices, selected=valid_selected)
+
+        # 5. Updated Global Snapshot output supporting Static vs. Animated modes
         @output
-        @render.ui  
+        @render.ui 
         def contribution_map():
-            """Fixed contribution choropleth map"""
+            """Render either the static period-average map or animated yearly choropleth"""
             try:
-                # Load data for all countries in region
-                df = pd.read_parquet("./data/data.parquet")
                 countries_for_choropleth = country_list()
-                
                 current_region_filter = input.region_filter()
                 if current_region_filter != "All":
                     countries_for_choropleth = countries_for_choropleth[
                         countries_for_choropleth['region'] == current_region_filter
                     ]
-                
-                isos_for_choropleth = countries_for_choropleth['iso2c'].unique().tolist()
-                
+
+                isos_for_choropleth = tuple(sorted(countries_for_choropleth['iso2c'].unique().tolist()))
                 if not isos_for_choropleth:
-                     return figure_to_html(create_empty_plot(f"No countries found for region: {current_region_filter}"))
-        
-                # Filter data for choropleth - use all available data, not just selected countries
-                choropleth_data = get_display_data(
-                    df=df,
-                    selected_isos=isos_for_choropleth,  # Use all countries in region
-                    year_range=input.years(),
+                    return figure_to_html(create_empty_plot(f"No countries found for region: {current_region_filter}"))
+
+                # Uses the cached function instead of reading data.parquet from disk every time
+                choropleth_data = cached_get_display_data(
+                    selected_isos_tuple=isos_for_choropleth,
+                    year_range=tuple(input.years()),
                     chemical_category=input.chemical_category(),
                     display_mode="compare_individuals",
-                    region_filter=current_region_filter,
-                    country_list=countries_for_choropleth
+                    region_filter=current_region_filter
                 )
-                
+
                 if choropleth_data.empty:
                     return figure_to_html(create_empty_plot("No data for global map with current selections"))
-                
-                # Debug info - you can remove this later
-                # print(f"Choropleth data shape: {choropleth_data.shape}")
-                # print(f"Countries with data: {choropleth_data['iso2c'].nunique()}")
-                # print(f"Value range: {choropleth_data['total_percentage'].min():.2f} - {choropleth_data['total_percentage'].max():.2f}")
-                    
-                return figure_to_html(create_contribution_choropleth(choropleth_data))
-                
+
+                if input.snapshot_mode() == "static":
+                    y_start, y_end = input.years()
+                    chem_cat = input.chemical_category()
+                    return figure_to_html(
+                        create_contribution_map_plot(
+                            choropleth_data,
+                            fill_label="Avg Share (%)",
+                            main_title=f"Average CS Contribution ({y_start}–{y_end}) — {chem_cat}"
+                        )
+                    )
+                else:
+                    return figure_to_html(create_contribution_choropleth(choropleth_data))
+
             except Exception as e:
                 print(f"Error in contribution_map: {str(e)}")
                 return figure_to_html(create_empty_plot(f"Error creating map: {str(e)}"))
@@ -549,7 +615,7 @@ def create_app():
         @render.ui
         def country_cs_plot():
             try:
-                article_data = load_article_data()
+                article_data = get_raw_dataframe()
                 if article_data.empty:
                     return figure_to_html(create_empty_plot("No article data available"))
                 
@@ -565,7 +631,7 @@ def create_app():
         @render.ui
         def article_top_collabs_plot():
             try:
-                df = pd.read_parquet("./data/data.parquet")
+                df = get_raw_dataframe()
                 is_collab = input.top_data_type_filter() == "collabs"
                 chem_filter = input.top_collabs_chem_filter()
                 
@@ -586,7 +652,7 @@ def create_app():
                 
                 return figure_to_html(create_top_trends_plot(
                     filtered_data[filtered_data['country'].isin(top_data.index)],
-                    f"Top 10 {'Collaborations' if is_collab else 'Countries'}: {chem_filter} 'Chemicals'" 
+                    f"Top 10 {'Collaborations' if is_collab else 'Countries'}: {chem_filter} Chemicals" 
                 ))
             except Exception as e:
                 return figure_to_html(create_empty_plot(f"Error: {str(e)}"))
@@ -595,7 +661,7 @@ def create_app():
         @render.ui
         def article_gdp_plot():
             try:
-                article_data = load_article_data()
+                article_data = get_raw_dataframe()
                 if article_data.empty:
                     return figure_to_html(create_empty_plot("No GDP data available"))
                 
@@ -611,7 +677,7 @@ def create_app():
         @render.ui
         def article_researchers_plot():
             try:
-                article_data = load_article_data()
+                article_data = get_raw_dataframe()
                 if article_data.empty:
                     return figure_to_html(create_empty_plot("No researchers data available"))
                 
@@ -627,7 +693,7 @@ def create_app():
         @render.ui
         def article_cs_expansion_plot():
             try:
-                article_data = load_article_data()
+                article_data = get_raw_dataframe()
                 if article_data.empty:
                     return figure_to_html(create_empty_plot("No CS expansion data available"))
                 
@@ -643,7 +709,7 @@ def create_app():
         @render.ui
         def china_us_plot():
             try:
-                article_data = load_article_data()
+                article_data = get_raw_dataframe()
                 if article_data.empty:
                     return figure_to_html(create_empty_plot("No data for China-US plot"))
                 
@@ -658,29 +724,29 @@ def create_app():
     # ADD THIS LINE EXACTLY HERE:
     return App(app_ui, server, static_assets=www_dir)
 
-# --- PASTING THE MISSING FUNCTION BACK IN ---
-# Cached helper functions
-@lru_cache(maxsize=1)
-def load_article_data():
-    """Load and cache article data"""
-    try:
-        df = pd.read_parquet("./data/data.parquet")
-        article_columns_map = {'source': 'source', 'year_x': 'year', 'country_x': 'country', 'percentage_x': 'value', 'cc': 'cc'}
-        required_raw_cols = list(article_columns_map.keys())
+# # --- PASTING THE MISSING FUNCTION BACK IN ---
+# # Cached helper functions
+# @lru_cache(maxsize=1)
+# def load_article_data():
+#     """Load and cache article data"""
+#     try:
+#         df = get_raw_dataframe()
+#         article_columns_map = {'source': 'source', 'year_x': 'year', 'country_x': 'country', 'percentage_x': 'value', 'cc': 'cc'}
+#         required_raw_cols = list(article_columns_map.keys())
 
-        if all(col in df.columns for col in required_raw_cols):
-            article_data_raw = df[required_raw_cols].copy()
-            article_data = article_data_raw.rename(columns=article_columns_map)
-            article_data = article_data.dropna(subset=['value', 'source'])
-            article_data = article_data[article_data['source'] != ""]
-            return article_data
-        return pd.DataFrame()
-    except Exception:
-        return pd.DataFrame()
+#         if all(col in df.columns for col in required_raw_cols):
+#             article_data_raw = df[required_raw_cols].copy()
+#             article_data = article_data_raw.rename(columns=article_columns_map)
+#             article_data = article_data.dropna(subset=['value', 'source'])
+#             article_data = article_data[article_data['source'] != ""]
+#             return article_data
+#         return pd.DataFrame()
+#     except Exception:
+#         return pd.DataFrame()
 # --------------------------------------------
 
 # Create and run the app
 app = create_app()
 
 if __name__ == "__main__":
-    app.run()
+    app.run(port=8888)

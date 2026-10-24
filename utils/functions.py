@@ -13,73 +13,25 @@ from pathlib import Path
 from functools import lru_cache
 import folium
 
+@lru_cache(maxsize=1)
+def get_raw_dataframe(data_path: str = "./data/data.parquet") -> pd.DataFrame:
+    """Read data.parquet into memory once and cache it."""
+    return pd.read_parquet(data_path)
 
-def load_country_data(data_path: str = "./data/data.parquet") -> Dict:
-    """
-    Load and prepare initial data
-    
-    Args:
-        data_path: Path to the parquet file
-        
-    Returns:
-        Dictionary containing processed data objects
-    """
-    try:
-        # Read parquet file
-        df = pd.read_parquet(data_path)
-        
-        # Process country list  
-        country_list = (
-            df[df['is_collab'] == False]
-            .drop_duplicates(subset=['country', 'iso2c', 'lat', 'lng', 'cc', 'region'])
-            .dropna(subset=['country', 'iso2c'])
-            .query("country != '' and iso2c != ''")
-            .copy()
-        )
-        
-        # Handle missing regions
-        country_list['region'] = country_list['region']
-        country_list = country_list.sort_values('country').reset_index(drop=True)
-        # Get chemical categories - Modified to remove empty values
-        chemical_categories = (
-            sorted(df['chemical']
-                  .dropna()
-                  .unique()
-                  .tolist())
-        )
-        # Remove any empty strings
-        chemical_categories = [c for c in chemical_categories if c and str(c).strip()]
-        # Remove duplicates while preserving order
-        chemical_categories = list(dict.fromkeys(chemical_categories))
-         
-        # Get regions
-        regions = sorted(country_list['region'].unique().tolist())
-        
-        # Get year range
-        min_year = int(df['year'].min())
-        max_year = int(df['year'].max())
-        
-        # Process article data (adjust column names as needed)
-        article_columns = ['source', 'year_x', 'country_x', 'percentage_x']
-        if all(col in df.columns for col in article_columns):
-            article_data = df[article_columns].dropna().copy()
-            article_data.columns = ['source', 'year', 'country', 'value']
-        else:
-            article_data = pd.DataFrame()
-            
-        return {
-            'data': df,
-            'country_list': country_list,
-            'chemical_categories': chemical_categories,  # Updated list
-            'regions': regions,
-            'min_year': min_year,
-            'max_year': max_year,
-            'article_data': article_data
-        }
-        
-    except Exception as e:
-        print(f"Error loading data: {e}")
-        return {}
+
+@lru_cache(maxsize=1)
+def get_world_geometries(world_path: str = "./data/world_boundaries.geojson") -> dict:
+    """Read world_boundaries.geojson once and cache the ISO-2 -> geometry lookup."""
+    world = gpd.read_file(world_path)
+    iso_to_geometry = {}
+    for _, row in world.iterrows():
+        for col in ['iso_a2_eh', 'wb_a2', 'iso_a2']:
+            if col in world.columns:
+                candidate = row.get(col)
+                if candidate is not None and isinstance(candidate, str) and len(candidate) == 2 and candidate != "-99":
+                    iso_to_geometry[candidate.upper()] = row.geometry
+                    break
+    return iso_to_geometry
 
 def get_display_data(
     df: pd.DataFrame,
@@ -203,200 +155,7 @@ def get_display_data(
     return result
 
 
-def create_main_plot(
-    data: pd.DataFrame, 
-    display_mode: str, 
-    selected_isos: List[str],
-    country_list: pd.DataFrame = None
-) -> go.Figure:
-    """
-    Create the main plot based on processed data and display mode
-    
-    Args:
-        data: Processed data DataFrame
-        display_mode: Current display mode
-        selected_isos: List of selected ISO codes
-        country_list: Country metadata DataFrame
-        
-    Returns:
-        Plotly Figure object
-    """
-    if data.empty:
-        fig = go.Figure()
-        fig.add_annotation(
-            text="No data to display for current selection",
-            xref="paper", yref="paper",
-            x=0.5, y=0.5, xanchor='center', yanchor='middle',
-            showarrow=False, font=dict(size=16)
-        )
-        fig.update_layout(template='plotly_white')
-        return fig
-        
-    fig = go.Figure()
-    
-    if display_mode in ["individual", "compare_individuals"]:
-        # Individual country plots
-        for group in data['plot_group'].unique():
-            group_data = data[data['plot_group'] == group]
-            color = group_data['plot_color'].iloc[0] if 'plot_color' in group_data.columns else None
-            
-            fig.add_trace(go.Scatter(
-                x=group_data['year'],
-                y=group_data['total_percentage'],
-                mode='lines+markers',
-                name=group,
-                line=dict(color=color, width=1) if color else dict(width=1),
-                marker=dict(
-                    color=color if color else None,
-                    size=group_data['total_percentage'] / 5,  # Size based on value
-                    sizemin=4,
-                    sizemax=12
-                ),
-                hovertemplate=(
-                    f"<b>{group}</b><br>" +
-                    "Year: %{x}<br>" +
-                    "Percentage: %{y:.2f}%<extra></extra>"
-                )
-            ))
-            
-    elif display_mode == "find_collaborations":
-        # Collaboration plots
-        colors = px.colors.qualitative.Set1
-        color_map = {}
-        
-        for i, group in enumerate(data['plot_group'].unique()):
-            group_data = data[data['plot_group'] == group]
-            color = colors[i % len(colors)]
-            color_map[group] = color
-            
-            fig.add_trace(go.Scatter(
-                x=group_data['year'],
-                y=group_data['total_percentage'],
-                mode='lines+markers',
-                name=group,
-                line=dict(color=color, width=2),
-                marker=dict(
-                    color=color,
-                    size=group_data['total_percentage'] / 5,
-                    sizemin=4,
-                    sizemax=12
-                ),
-                hovertemplate=(
-                    f"<b>Collaboration: {group}</b><br>" +
-                    "Year: %{x}<br>" +
-                    "Percentage: %{y:.2f}%<extra></extra>"
-                )
-            ))
-    
-    # Define legend configuration based on display mode
-    legend_title = "All collaborations including the selected countries" if display_mode == "find_collaborations" else None
 
-    # Update layout
-    fig.update_layout(
-        title="Chemical Contribution Trends",
-        yaxis = dict(
-            ticksuffix='%',
-            fixedrange = True,
-            title=go.layout.yaxis.Title(
-                text="New Substances",
-                standoff=1,
-                font=dict(size=12, color='black')
-            )
-        ),
-        xaxis = dict(
-            fixedrange = True,
-            title=go.layout.xaxis.Title(
-                text="Year",
-                standoff=1,
-                font=dict(size=12, color='black')
-            )
-        ),
-        template='plotly_white',
-        hovermode='closest',
-        showlegend=True,
-        legend=dict(
-            title=legend_title,
-            orientation="h",
-            yanchor="top",
-            y=-0.3,
-            xanchor="center", 
-            x=0.5
-        )
-    )
-    
-    return fig
-
-def create_contribution_map_plot(
-    processed_data_df: pd.DataFrame,
-    fill_label: str = "Average Contribution (%)",
-    main_title: str = "Average Contribution Over Selected Period"
-) -> go.Figure:
-    """
-    Optimized choropleth map creation
-    """
-    if processed_data_df.empty or 'total_percentage' not in processed_data_df.columns:
-        return create_empty_plot("No data for map")
-        
-    # Efficient aggregation
-    map_data = (
-        processed_data_df.groupby(['iso2c', 'country'], as_index=False)
-        .agg({
-            'total_percentage': ['mean', 'max', 'min'],
-            'year': ['min', 'max'],
-            'region': 'first'
-        })
-        .round(2)
-    )
-    
-    # Flatten column names
-    map_data.columns = [
-        'iso2c', 'country', 
-        'avg_percentage', 'max_percentage', 'min_percentage',
-        'first_year', 'last_year', 'region'
-    ]
-    
-    # Create choropleth with better color scale
-    fig = go.Figure(data=go.Choropleth(
-        locations=map_data['iso2c'],
-        z=map_data['avg_percentage'],
-        locationmode='ISO-3166-1-alpha-2',
-        colorscale='Viridis',
-        reversescale=False,
-        hovertemplate=(
-            "<b>%{customdata[0]}</b> (%{location})<br>" +
-            "Avg Contribution: %{z:.2f}%<br>" +
-            "Region: %{customdata[1]}<br>" +
-            "Range: %{customdata[2]:.2f}% - %{customdata[3]:.2f}%<br>" +
-            "Years: %{customdata[4]:.0f}-%{customdata[5]:.0f}<extra></extra>"
-        ),
-        customdata=map_data[['country', 'region', 'min_percentage', 'max_percentage', 'first_year', 'last_year']].values,
-        colorbar=dict(
-            title=fill_label,
-            titleside="right",
-            tickmode="linear",
-            tick0=0,
-            dtick=1
-        )
-    ))
-    
-    fig.update_layout(
-        title={
-            'text': main_title,
-            'x': 0.5,
-            'xanchor': 'center'
-        },
-        geo=dict(
-            showframe=False,
-            showcoastlines=True,
-            coastlinecolor="lightgray",
-            projection_type='natural earth',
-            bgcolor='rgba(0,0,0,0)'
-        ),
-        template='plotly_white',
-        height=500
-    )
-    
-    return fig
 
 def create_empty_plot(message: str):
     """Create empty plot with message"""
@@ -426,22 +185,6 @@ def create_trends_plot(data: pd.DataFrame, selected_countries: List[str], mode: 
             xref="paper", yref="paper",
             x=0.5, y=0.5, showarrow=False, font=dict(size=14)
         )
-        # Add historical context markers for CS perturbations
-    fig.add_vline(x=2008, line_dash="dot", line_color="rgba(128, 128, 128, 0.5)")
-    fig.add_vline(x=2020, line_dash="dot", line_color="rgba(128, 128, 128, 0.5)")
-    
-    if fig.data:
-        max_val = max([max(trace['y']) for trace in fig.data if len(trace['y']) > 0])
-        fig.add_annotation(
-            x=2008, y=max_val * 0.95, text="Financial Crisis", 
-            showarrow=False, textangle=-90, font=dict(size=10, color="gray"), xshift=-10
-        )
-        fig.add_annotation(
-            x=2020, y=max_val * 0.95, text="COVID-19", 
-            showarrow=False, textangle=-90, font=dict(size=10, color="gray"), xshift=-10
-        )
-        fig.update_layout(xaxis=dict(visible=False), yaxis=dict(visible=False), template='plotly_white')
-        return fig
     
     data_sorted = data.sort_values(['plot_group', 'year'])
 
@@ -548,6 +291,17 @@ def create_trends_plot(data: pd.DataFrame, selected_countries: List[str], mode: 
                 bordercolor="#ccc", borderwidth=1
             ))
 
+# Place this right before fig.update_layout(...) in create_trends_plot():
+    if fig.data:
+        all_y = [val for trace in fig.data for val in trace['y'] if val is not None]
+        max_val = max(all_y) if all_y else 10
+        for event_year, label in [(2008, "Financial Crisis"), (2020, "COVID-19")]:
+            fig.add_vline(x=event_year, line_dash="dot", line_color="rgba(128, 128, 128, 0.5)")
+            fig.add_annotation(
+                x=event_year, y=max_val * 0.95, text=label,
+                showarrow=False, textangle=-90, font=dict(size=10, color="gray"), xshift=-10
+            )
+
     fig.update_layout(
         yaxis=dict(
             ticksuffix='%', fixedrange=True,
@@ -573,119 +327,6 @@ def create_trends_plot(data: pd.DataFrame, selected_countries: List[str], mode: 
     
     return fig
 
-
-def create_summary_table(data: pd.DataFrame, display_mode: str) -> pd.DataFrame:
-    """
-    Create summary data table based on processed data
-    
-    Args:
-        data: Processed data DataFrame
-        display_mode: Current display mode
-        
-    Returns:
-        Summary DataFrame for display
-    """
-    if data.empty:
-        return pd.DataFrame({"Message": ["No data available"]})
-        
-    if display_mode in ["individual", "compare_individuals"]:
-        summary = (
-            data.groupby(['iso2c', 'country', 'region', 'chemical'])
-            .agg({
-                'total_percentage': ['mean', 'max', 'count']
-            })
-            .round(2)
-            .reset_index()
-        )
-        
-        # Flatten column names
-        summary.columns = [
-            'ISO', 'Country', 'Region', 'Chemical Category',
-            'Avg %', 'Max %', 'Years Present'
-        ]
-        
-    elif display_mode == "find_collaborations": 
-        summary = (
-            data.groupby(['iso2c', 'collab_type', 'chemical'])
-            .agg({
-                'total_percentage': ['mean', 'max', 'count']
-            })
-            .round(2)
-            .reset_index()
-        )
-        
-        # Flatten column names
-        summary.columns = [
-            'Collaboration', 'Type', 'Chemical Category',
-            'Avg %', 'Max %', 'Years Present'
-        ]
-    else:
-        return pd.DataFrame({"Message": ["Invalid display mode"]})
-        
-    return summary
-
-def calculate_top_contributors(
-    df: pd.DataFrame,
-    year_range: Tuple[int, int],
-    chemical_category: str,
-    region_filter: str = "All", 
-    country_list: pd.DataFrame = None,
-    top_n: int = 10,
-    ignore_year_filter: bool = False
-) -> pd.DataFrame:
-    """
-    Calculate top contributing countries based on filters
-    
-    Args:
-        df: Main data DataFrame
-        year_range: Year range tuple
-        chemical_category: Chemical category filter
-        region_filter: Region filter
-        country_list: Country metadata
-        top_n: Number of top contributors to return
-        ignore_year_filter: Whether to ignore year filter
-        
-    Returns:
-        DataFrame with top contributors
-    """
-    # Base query for solo contributions
-    query_df = df[df['is_collab'] == False].copy()
-    
-    # Apply filters
-    if not ignore_year_filter:
-        query_df = query_df[
-            (query_df['year'] >= year_range[0]) & 
-            (query_df['year'] <= year_range[1])
-        ]
-        
-    if chemical_category != "All":
-        query_df = query_df[query_df['chemical'] == chemical_category]
-        
-    if region_filter != "All":
-        query_df = query_df[query_df['region'] == region_filter]
-        
-    # Calculate top contributors
-    top_data = (
-        query_df.groupby('iso2c')['percentage']
-        .mean()
-        .reset_index()
-        .sort_values('percentage', ascending=False)
-        .head(top_n)
-        .reset_index(drop=True)
-    )
-    
-    top_data['rank'] = range(1, len(top_data) + 1)
-    
-    # Add country names if available
-    if country_list is not None:
-        top_data = top_data.merge(
-            country_list[['iso2c', 'country']], 
-            on='iso2c', 
-            how='left'
-        )
-    return top_data[['rank', 'iso2c', 'country', 'percentage']].rename(
-        columns={'percentage': 'avg_percentage'}
-    )
 
 def create_article_plot(data: pd.DataFrame, title: str):
     """Create article plots"""
@@ -747,7 +388,7 @@ def create_article_plot(data: pd.DataFrame, title: str):
             dict(
                 type="buttons",
                 direction="right",
-                active=3,  # Set the default active button (All Years)
+                active=2,  # Set the default active button (All Years)
                 x=1,
                 y=1.35,
                 buttons=list([
@@ -773,166 +414,6 @@ def create_article_plot(data: pd.DataFrame, title: str):
 
     return fig
 
-def create_article_plot_simple(
-    article_df: pd.DataFrame,
-    source_title: str, 
-    y_title: str,
-    animate: bool = False
-) -> go.Figure:
-    """
-    Create simplified plot for static article data
-    
-    Args:
-        article_df: Article data DataFrame
-        source_title: Source identifier
-        y_title: Y-axis label
-        animate: Whether to animate (not implemented)
-        
-    Returns:
-        Plotly Figure object
-    """
-    if article_df.empty:
-        fig = go.Figure()
-        fig.add_annotation(
-            text="No data for this figure",
-            xref="paper", yref="paper",
-            x=0.5, y=0.5, xanchor='center', yanchor='middle',
-            showarrow=False
-        )
-        return fig
-        
-    # Define consistent colors (subset of R version)
-    country_colors = {
-        "China": "#c5051b", "China alone": "#c56a75", "China w/o US": "#9b2610",
-        "France": "#0a3161", "Germany": "#000000", "India": "#ff671f", 
-        "Japan": "#000091", "Russia": "#d51e9b", "USA alone": "#3b5091",
-        "USA w/o China": "#006341", "United Kingdom": "#74acdf", 
-        "United States": "#002852", "US": "#002853"
-    }
-    
-    fig = go.Figure()
-    
-    # Process data based on source
-    plot_data = article_df.copy()
-    
-    if source_title == "Number of Researchers":
-        plot_data['plot_value'] = plot_data['value'] / 1e6
-        y_title = f"{y_title} (Millions)"
-    elif source_title == "Annual growth rate of the GDP":
-        plot_data['plot_value'] = plot_data['value']
-        y_title = f"{y_title} (%)"
-    else:
-        plot_data['plot_value'] = plot_data['value']
-        
-    # Add traces for each country
-    for country in plot_data['country'].unique():
-        country_data = plot_data[plot_data['country'] == country]
-        color = country_colors.get(country, '#1f77b4')  # Default blue
-        
-        fig.add_trace(go.Scatter(
-            x=country_data['year'],
-            y=country_data['plot_value'],
-            mode='lines+markers',
-            name=country,
-            line=dict(color=color, width=2),
-            marker=dict(color=color, size=6),
-            hovertemplate=(
-                f"<b>{country}</b><br>" +
-                "Year: %{x}<br>" +
-                f"Value: %{{y:.2f}}<extra></extra>"
-            )
-        ))
-    
-    # Add annotations for GDP plot
-    if source_title == "Annual growth rate of the GDP":
-        fig.add_vline(x=2007.5, line_dash="dash", line_color="grey")
-        fig.add_vline(x=2019.5, line_dash="dash", line_color="grey")
-        fig.add_annotation(x=2007.5, y=fig.data[0].y.max() * 0.9 if fig.data else 10,
-                          text="Financial Crisis", showarrow=True)
-        fig.add_annotation(x=2019.5, y=fig.data[0].y.max() * 0.8 if fig.data else 8,
-                          text="COVID-19", showarrow=True)
-    
-    fig.update_layout(
-        title=f"Figure: {source_title}",
-        xaxis_title="Year",
-        yaxis_title=y_title,
-        template='plotly_white',
-        hovermode='x unified',
-        showlegend=True,
-        legend=dict(orientation="h", y=-0.2)
-    )
-    
-    return fig
-
-def create_top_collabs_plot(top_collab_data: pd.DataFrame, title: str = "Collaboration Trends") -> go.Figure:
-    """
-    Create plot for top collaboration trends
-    
-    Args:
-        top_collab_data: Data with top collaborations
-        title: Plot title
-        
-    Returns:
-        Plotly Figure object
-    """
-    if top_collab_data.empty:
-        fig = go.Figure()
-        fig.add_annotation(
-            text="No collaboration data to display",
-            xref="paper", yref="paper",
-            x=0.5, y=0.5, xanchor='center', yanchor='middle',
-            showarrow=False
-        )
-        return fig
-        
-    fig = go.Figure()
-    
-    # Use qualitative colors
-    colors = px.colors.qualitative.Set1
-    
-    for i, entity in enumerate(top_collab_data['country'].unique()):
-        entity_data = top_collab_data[top_collab_data['country'] == entity]
-        color = colors[i % len(colors)]
-        
-        fig.add_trace(go.Scatter(
-            x=entity_data['year'],
-            y=entity_data['percentage'],
-            mode='lines+markers',
-            name=entity,
-            line=dict(color=color, width=1.5),
-            marker=dict(color=color, size=4),
-            hovertemplate=(
-                f"<b>{entity}</b><br>" +
-                "Year: %{x}<br>" +
-                "Percentage: %{y:.2f}%<extra></extra>"
-            )
-        ))
-    
-    fig.update_layout(
-        title=title,
-        yaxis = dict(
-            ticksuffix='%',
-            fixedrange = True,
-            title=go.layout.yaxis.Title(
-                text="New Substances",
-                standoff=1,
-                font=dict(size=12, color='black')
-            )
-        ),
-        xaxis = dict(
-            fixedrange = True,
-            title=go.layout.xaxis.Title(
-                text="Year",
-                standoff=1,
-                font=dict(size=12, color='black')
-            )
-        ),
-        template='plotly_white',
-        showlegend=True,
-        legend=dict(orientation="h", y=-0.3)
-    )
-    
-    return fig
 
 def create_top_trends_plot(data: pd.DataFrame, title: str):
     """Create top contributors/collaborations plot"""
@@ -1045,7 +526,6 @@ def create_folium_map(country_list: pd.DataFrame, selected_countries: List[str])
                 padding: 10px;
                 font-size: 12px;
                 font-family: sans-serif;">
-        </div>
         <div style="display: flex; align-items: center;">
             <span style="background: #83928e; border: 1px solid #333; width: 14px; height: 14px; display: inline-block; margin-right: 6px; opacity: 0.7;"></span>
             <span>Available Countries</span>
@@ -1078,37 +558,9 @@ def create_folium_map(country_list: pd.DataFrame, selected_countries: List[str])
         m.get_root().html.add_child(folium.Element(title_html))
     
     # Load world geometries for better country shapes
+    
     try:
-        world_path = "./data/world_boundaries.geojson"
-        world = gpd.read_file(world_path)
-        
-        # Look for ISO column in a more comprehensive way
-        iso_column = None
-        potential_iso_columns = ['iso_a2', 'ISO_A2', 'iso2c', 'ISO2C', 'ISO', 'iso', 'ISO_2', 'iso_2']
-        for possible_col in potential_iso_columns:
-            if possible_col in world.columns:
-                iso_column = possible_col
-                break
-        
-        if iso_column is None:
-            print("Warning: No ISO column found in GeoJSON. Available columns:", world.columns.tolist())
-            raise FileNotFoundError("No suitable ISO column found")
-        
-        # Create ISO to geometry mapping for quicker lookups
-        # Use multiple ISO columns to handle cases where iso_a2 is "-99" 
-        iso_to_geometry = {}
-        for _, row in world.iterrows():
-            # Try multiple ISO columns in order of preference
-            iso_code = None
-            for col in ['iso_a2_eh', 'wb_a2', 'iso_a2']:
-                if col in world.columns:
-                    candidate = row.get(col)
-                    if candidate is not None and isinstance(candidate, str) and len(candidate) == 2 and candidate != "-99":
-                        iso_code = candidate
-                        break
-            
-            if iso_code is not None:  # Valid ISO-2 code found
-                iso_to_geometry[iso_code] = row.geometry
+        iso_to_geometry = get_world_geometries()
         
         # Add countries to map
         for _, country_row in country_list.iterrows():
@@ -1503,8 +955,9 @@ def create_cs_expansion_plot(data: pd.DataFrame):
     fig.update_layout(
         yaxis = dict(
             fixedrange = True,
+            type="log",
             title=go.layout.yaxis.Title(
-                text="Number of New Substances",
+                text="Number of New Substances (Log Scale)",
                 standoff=1,
                 font=dict(size=12, color='black')
             )
@@ -1618,4 +1071,128 @@ def create_china_us_dual_axis_plot(data: pd.DataFrame):
         modebar_remove=['zoom', 'pan', 'lasso', 'select', 'zoomIn', 'zoomOut', 'autoScale']
     )
     
+    return fig
+
+def create_contribution_map_plot(
+    processed_data_df: pd.DataFrame,
+    fill_label: str = "Avg Contribution (%)",
+    main_title: str = "Average Contribution Over Selected Period"
+) -> go.Figure:
+    """Static choropleth map showing average country contribution over the selected period."""
+    if processed_data_df.empty or 'total_percentage' not in processed_data_df.columns:
+        return create_empty_plot("No data for map")
+
+    group_cols = ['iso3c', 'iso2c', 'country'] if 'iso3c' in processed_data_df.columns else ['iso2c', 'country']
+    map_data = (
+        processed_data_df.groupby(group_cols, as_index=False)
+        .agg(
+            avg_percentage=('total_percentage', 'mean'),
+            max_percentage=('total_percentage', 'max'),
+            min_percentage=('total_percentage', 'min'),
+            first_year=('year', 'min'),
+            last_year=('year', 'max'),
+            region=('region', 'first')
+        )
+        .round(2)
+    )
+
+    # Use square-root scaling for color visibility across 0.01% - 41% while displaying real % on ticks
+    max_val = max(float(map_data['avg_percentage'].max()), 1.0)
+    tick_vals_real = [0, 0.5, 2, 5, 10, 20, 30, 40]
+    tick_vals_real = [v for v in tick_vals_real if v <= max_val * 1.1]
+    tick_vals_scaled = [np.sqrt(v) for v in tick_vals_real]
+
+    loc_col = 'iso3c' if 'iso3c' in map_data.columns else 'country'
+    loc_mode = 'ISO-3' if 'iso3c' in map_data.columns else 'country names'
+
+    fig = go.Figure(data=go.Choropleth(
+        locations=map_data[loc_col],
+        z=np.sqrt(map_data['avg_percentage'].clip(lower=0)),
+        locationmode=loc_mode,
+        colorscale='Viridis',
+        zmin=0,
+        zmax=np.sqrt(max_val),
+        hovertemplate=(
+            "<b>%{customdata[0]}</b> (%{customdata[1]})<br>" +
+            "Avg Contribution: <b>%{customdata[2]:.2f}%</b><br>" +
+            "Region: %{customdata[3]}<br>" +
+            "Range: %{customdata[4]:.2f}% – %{customdata[5]:.2f}%<br>" +
+            "Years: %{customdata[6]:.0f}–%{customdata[7]:.0f}<extra></extra>"
+        ),
+        customdata=map_data[[
+            'country', 'iso2c', 'avg_percentage', 'region',
+            'min_percentage', 'max_percentage', 'first_year', 'last_year'
+        ]].values,
+        colorbar=dict(
+            title=dict(text=fill_label, side="right"),
+            tickvals=tick_vals_scaled,
+            ticktext=[f"{v}%" for v in tick_vals_real]
+        )
+    ))
+
+    fig.update_layout(
+        title={'text': main_title, 'x': 0.5, 'xanchor': 'center'},
+        geo=dict(
+            showframe=False,
+            showcoastlines=True,
+            coastlinecolor="lightgray",
+            projection_type='robinson',
+            bgcolor='rgba(0,0,0,0)'
+        ),
+        template='plotly_white',
+        height=550,
+        margin=dict(l=0, r=0, t=50, b=0)
+    )
+    return fig
+
+
+def create_contribution_choropleth(data: pd.DataFrame) -> go.Figure:
+    """Create animated yearly world choropleth map."""
+    if data.empty or 'total_percentage' not in data.columns:
+        return create_empty_plot("No data available for choropleth")
+
+    anim_data = data.sort_values('year').dropna(subset=['total_percentage']).copy()
+    anim_data['sqrt_pct'] = np.sqrt(anim_data['total_percentage'].clip(lower=0))
+    max_val = max(float(anim_data['total_percentage'].max()), 1.0)
+    tick_vals_real = [v for v in [0, 0.5, 2, 5, 10, 20, 30, 40] if v <= max_val * 1.1]
+
+    fig = px.choropleth(
+        anim_data,
+        locations="iso3c",
+        color="sqrt_pct",
+        hover_name="country",
+        custom_data=["country", "iso2c", "year", "total_percentage", "region"],
+        animation_frame="year",
+        color_continuous_scale="Viridis",
+        range_color=[0, np.sqrt(max_val)],
+        projection="robinson"
+    )
+
+    hover_tmpl = (
+        "<b>%{customdata[0]}</b> (%{customdata[1]})<br>"
+        "Year: %{customdata[2]}<br>"
+        "Contribution: <b>%{customdata[3]:.2f}%</b><br>"
+        "Region: %{customdata[4]}<extra></extra>"
+    )
+    fig.update_traces(hovertemplate=hover_tmpl)
+    for frame in fig.frames:
+        for trace in frame.data:
+            trace.hovertemplate = hover_tmpl
+
+    fig.update_layout(
+        coloraxis_colorbar=dict(
+            title=dict(text="Contribution (%)", side="right"),
+            tickvals=[np.sqrt(v) for v in tick_vals_real],
+            ticktext=[f"{v}%" for v in tick_vals_real]
+        ),
+        geo=dict(showframe=False, showcoastlines=True, coastlinecolor="lightgray"),
+        template='plotly_white',
+        height=550,
+        margin=dict(l=0, r=0, t=30, b=0)
+    )
+
+    if fig.layout.updatemenus:
+        fig.layout.updatemenus[0].buttons[0].args[1]["frame"]["duration"] = 500
+        fig.layout.updatemenus[0].buttons[0].args[1]["transition"]["duration"] = 250
+
     return fig
