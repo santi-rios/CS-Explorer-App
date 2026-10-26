@@ -129,28 +129,30 @@ def create_app():
                 ),
             ),
             ui.layout_column_wrap(
-                ui.value_box(
-                    title="China's CS Share (2022)",
-                    value="41.0%",
-                    showcase=ui.tags.span("🇨🇳", style="font-size: 2.6rem;"),
-                    theme="bg-danger text-white",
-                    p="Surpassed the US in 2013; >90% driven by domestic research"
+                ui.card(
+                    ui.card_header("📈 Contribution Trends"),
+                    ui.output_ui("main_plot"),
+                    class_="dashboard-plot-card"
                 ),
-                ui.value_box(
-                    title="United States' CS Share (2022)",
-                    value="11.0%",
-                    showcase=ui.tags.span("🇺🇸", style="font-size: 2.6rem;"),
-                    theme="bg-primary text-white",
-                    p="Declined from peak post-2007; increasingly reliant on collaboration"
+                ui.card(
+                    ui.card_header("🌎 Global Choropleth Snapshot"),
+                    ui.div(
+                        ui.input_radio_buttons(
+                            "snapshot_mode",
+                            "🗺️ Choropleth Mode:",
+                            choices={
+                                "static": "Period Average (Static Robinson Map)",
+                                "animated": "Yearly Evolution (1996–2022 Animated)"
+                            },
+                            selected="static",
+                            inline=True
+                        ),
+                        class_="snapshot-controls"
+                    ),
+                    ui.output_ui("contribution_map"),
+                    class_="dashboard-plot-card"
                 ),
-                ui.value_box(
-                    title="Historical CS Expansion Pace",
-                    value="~4.0% / yr",
-                    showcase=ui.tags.span("🧪", style="font-size: 2.6rem;"),
-                    theme="bg-success text-white",
-                    p="15,725,488 substances mapped; chemical composition remains invariant"
-                ),
-                width=1/3,
+                width=1/2,
                 style="margin-bottom: 20px;"
             ),
 
@@ -266,28 +268,11 @@ def create_app():
                     ui.output_ui("dynamic_explorer_kpis"),
 
                     # Lower Output Tabs (Trends, Global Choropleth Snapshot, Summary Table)
-                    ui.navset_card_tab(
-                        ui.nav_panel("📈 Contribution Trends", ui.output_ui("main_plot")),
-                        ui.nav_panel(
-                            "🌎 Global Choropleth Snapshot",
-                            ui.div(
-                                ui.input_radio_buttons(
-                                    "snapshot_mode",
-                                    "🗺️ Choropleth Mode:",
-                                    choices={
-                                        "static": "Period Average (Static Robinson Map)",
-                                        "animated": "Yearly Evolution (1996–2022 Animated)"
-                                    },
-                                    selected="static",
-                                    inline=True
-                                ),
-                                style="display: flex; justify-content: center; margin-bottom: 8px;"
-                            ),
-                            ui.output_ui("contribution_map")
-                        ),
-                        ui.nav_panel("📋 Summary Statistics Table", ui.output_data_frame("summary_table"))
-                    )
-                ),
+                    ui.card(
+                        ui.card_header("� Summary Statistics"),
+                        ui.output_data_frame("summary_table"),
+                        class_="mt-3"
+                    )),
 
                 # TAB 2: Key Article Figures (with Executive Side-by-Side View + Animated Bubble Explorer)
                 ui.nav_panel(

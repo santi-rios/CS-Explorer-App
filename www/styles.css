@@ -73,3 +73,22 @@ footer {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
 }
+
+.dashboard-plot-card {
+    min-height: 560px;
+    margin: 0.5rem;
+}
+
+.dashboard-plot-card .card-body {
+    padding: 0.75rem;
+}
+
+.snapshot-controls {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 0.5rem;
+}
+
+.snapshot-controls .shiny-input-container {
+    margin-bottom: 0;
+}
