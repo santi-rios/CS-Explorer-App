@@ -446,32 +446,32 @@ def create_enhanced_folium_map(
     )
 
     # 1. Default Light Theme (Direct CartoDB Positron URL — 100% Free, No API Key Required)
-    folium.TileLayer(
-        tiles="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
-        attr='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-        name="Light Map (Positron)",
-        max_zoom=19,
-        control=True
-    ).add_to(m)
+    # folium.TileLayer(
+    #     tiles="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+    #     attr='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    #     name="Light Map (Positron)",
+    #     max_zoom=19,
+    #     control=True
+    # ).add_to(m)
 
-    # 2. Optional Dark Theme (Great for making Viridis bubbles & flags pop!)
-    folium.TileLayer(
-        tiles="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-        attr='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-        name="Dark Map (Dark Matter)",
-        max_zoom=19,
-        control=True,
-        show=False
-    ).add_to(m)
+    # # 2. Optional Dark Theme (Great for making Viridis bubbles & flags pop!)
+    # folium.TileLayer(
+    #     tiles="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+    #     attr='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    #     name="Dark Map (Dark Matter)",
+    #     max_zoom=19,
+    #     control=True,
+    #     show=False
+    # ).add_to(m)
 
     # 3. Optional Standard OpenStreetMap
     folium.TileLayer(
         tiles="https://tile.openstreetmap.org/{z}/{x}/{y}.png",
         attr='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-        name="Standard OpenStreetMap",
+        name="OpenStreetMap",
         max_zoom=19,
-        control=True,
-        show=False
+        control=True
+        # show=False
     ).add_to(m)
     # Compute average and peak share per country over the active filter period
     avg_shares = {}

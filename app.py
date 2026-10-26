@@ -159,8 +159,6 @@ def create_app():
                 # TAB 1: Interactive Explorer (Superzip + Flag Map + Dynamic KPIs)
                 ui.nav_panel(
                     "🗺️ Interactive Explorer",
-                    # Dynamic KPI strip that updates with the user's map/country selection
-                    ui.output_ui("dynamic_explorer_kpis"),
 
                     # Top Filter Bar
                     ui.panel_well(
@@ -263,6 +261,9 @@ def create_app():
                         ),
                         class_="border rounded mb-3"
                     ),
+
+                                        # Dynamic KPI strip that updates with the user's map/country selection
+                    ui.output_ui("dynamic_explorer_kpis"),
 
                     # Lower Output Tabs (Trends, Global Choropleth Snapshot, Summary Table)
                     ui.navset_card_tab(

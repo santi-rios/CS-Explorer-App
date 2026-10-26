@@ -23,7 +23,7 @@ shapely==2.0.7
 shiny==1.1.0
 shinywidgets==0.3.3
 starlette==0.44.0
- tzdata==2026.3
+tzdata==2026.3
 urllib3==2.2.3
 uvicorn==0.33.0
 watchfiles==0.24.0
