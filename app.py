@@ -23,6 +23,8 @@ from utils.functions import (
     create_animated_bubble_figure,
     iso_to_flag_emoji
 )
+import shinyswatch
+
 
 www_dir = Path(__file__).resolve().parent / "www"
 
@@ -111,38 +113,68 @@ def create_app():
     app_ui = ui.page_navbar(
         ui.nav_panel(
             "Dashboard",
-            # --- Executive Header & KPI Value Boxes (NZ Trade Dashboard Style) ---
             ui.div(
                 ui.h3(
                     "China's Rise in the Chemical Space & the Decline of US Influence",
-                    style="text-align: center; font-weight: 700; margin-top: 15px; margin-bottom: 8px;"
+                    style=(
+                        "text-align: center; "
+                        "font-weight: 700; "
+                        "margin-top: 15px; "
+                        "margin-bottom: 8px;"
+                    )
                 ),
                 ui.p(
-                    "Interactive geopolitical explorer of 15.7 million new chemical substances across 155 countries (1996–2022) — ",
+                    "Interactive geopolitical explorer of 15.7 million new chemical "
+                    "substances across 155 countries (1996–2022) — ",
                     ui.tags.a(
-                        "Bermúdez-Montaña et al. (2025), Quantitative Science Studies",
+                        "Bermúdez-Montaña et al. (2025), "
+                        "Quantitative Science Studies",
                         href="https://doi.org/10.1162/QSS.a.471",
                         target="_blank",
                         style="font-weight: 600;"
                     ),
-                    style="text-align: center; color: #555; margin-bottom: 20px;"
+                    style=(
+                        "text-align: center; "
+                        "color: #555; "
+                        "margin-bottom: 20px;"
+                    )
                 ),
             ),
             ui.layout_column_wrap(
                 ui.card(
-                    ui.card_header("📈 Contribution Trends"),
+                    ui.card_header(
+                        ui.div(
+                            ui.tags.span("📈 Contribution Trends"),
+                            ui.tags.small(
+                                "Select countries and filters below to update the chart.",
+                                class_="text-muted ms-2"
+                            ),
+                            class_="d-flex align-items-center justify-content-between"
+                        )
+                    ),
                     ui.output_ui("main_plot"),
+                    full_screen=True,
                     class_="dashboard-plot-card"
                 ),
+            
                 ui.card(
-                    ui.card_header("🌎 Global Choropleth Snapshot"),
+                    ui.card_header(
+                        ui.div(
+                            ui.tags.span("🌎 Global Choropleth Snapshot"),
+                            ui.tags.small(
+                                "Average contribution by country.",
+                                class_="text-muted ms-2"
+                            ),
+                            class_="d-flex align-items-center justify-content-between"
+                        )
+                    ),
                     ui.div(
                         ui.input_radio_buttons(
                             "snapshot_mode",
                             "🗺️ Choropleth Mode:",
                             choices={
-                                "static": "Period Average (Static Robinson Map)",
-                                "animated": "Yearly Evolution (1996–2022 Animated)"
+                                "static": "Period Average",
+                                "animated": "Yearly Evolution"
                             },
                             selected="static",
                             inline=True
@@ -150,10 +182,12 @@ def create_app():
                         class_="snapshot-controls"
                     ),
                     ui.output_ui("contribution_map"),
+                    full_screen=True,
                     class_="dashboard-plot-card"
                 ),
-                width=1/2,
-                style="margin-bottom: 20px;"
+            
+                width=1 / 2,
+                class_="dashboard-top-plots"
             ),
 
             # --- Main Navigation Tabs ---
@@ -192,7 +226,13 @@ def create_app():
                                     "years", "📅 Year Range:",
                                     min=initial_data['min_year'], max=initial_data['max_year'],
                                     value=[initial_data['min_year'], initial_data['max_year']],
-                                    step=1, sep=""
+                                    step=1, sep="",
+                                    animate=ui.AnimationOptions(
+                                    interval=700,    # Milisegundos entre cada año (700 ms da buena fluidez)
+                                    loop=True,       # Vuelve al inicio al terminar 2022
+                                    play_button=ui.tags.span("▶ Iniciar Animación", class_="btn btn-sm btn-outline-success"),
+                                    pause_button=ui.tags.span("⏸ Pausar", class_="btn btn-sm btn-outline-warning")
+    )
                                 )
                             )
                         ),
@@ -272,7 +312,10 @@ def create_app():
                         ui.card_header("� Summary Statistics"),
                         ui.output_data_frame("summary_table"),
                         class_="mt-3"
-                    )),
+                    )
+                    
+                    
+                    ),
 
                 # TAB 2: Key Article Figures (with Executive Side-by-Side View + Animated Bubble Explorer)
                 ui.nav_panel(
@@ -365,7 +408,8 @@ def create_app():
             )
         ),
         header=ui.tags.script(plotly_offline.get_plotlyjs()),
-        title="Chemical Space Explorer 🧪",
+        title="Chemical Space Explorer",
+        theme=shinyswatch.theme.flatly,
         footer=ui.div(
             ui.hr(),
             ui.p(
@@ -746,6 +790,7 @@ def create_app():
                 filtered[filtered['country'].isin(top_entities.index)],
                 f"Top 10 {'Collaborations' if is_collab else 'Countries'} — {chem_filter}"
             ))
+            
 
     return App(app_ui, server, static_assets=www_dir)
 
