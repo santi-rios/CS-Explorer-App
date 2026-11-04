@@ -141,55 +141,65 @@ def create_app():
                 ),
             ),
             ui.layout_column_wrap(
-                ui.card(
-                    ui.card_header(
-                        ui.div(
-                            ui.tags.span("📈 Contribution Trends"),
-                            ui.tags.small(
-                                "Select countries and filters below to update the chart.",
-                                class_="text-muted ms-2"
-                            ),
-                            class_="d-flex align-items-center justify-content-between"
-                        )
-                    ),
-                    ui.output_ui("main_plot"),
-                    full_screen=True,
-                    fill=True
-                    # class_="dashboard-plot-card"
-                ),
-            
-                ui.card(
-                    ui.card_header(
-                        ui.div(
-                            ui.tags.span("🌎 Global Choropleth Snapshot"),
-                            ui.tags.small(
-                                "Average contribution by country.",
-                                class_="text-muted ms-2"
-                            ),
-                            class_="d-flex align-items-center justify-content-between"
-                        )
-                    ),
+# Full-width Trends Card with Collapsible Right-Hand Choropleth Drawer
+            ui.card(
+                ui.card_header(
                     ui.div(
-                        ui.input_radio_buttons(
-                            "snapshot_mode",
-                            "🗺️ Choropleth Mode:",
-                            choices={
-                                "static": "Period Average",
-                                "animated": "Yearly Evolution"
-                            },
-                            selected="static",
-                            inline=True
+                        ui.div(
+                            ui.tags.span("📈 Contribution Trends", style="font-weight: 600;"),
+                            ui.tags.small(
+                                "Select countries and filters to update the chart.",
+                                class_="text-muted ms-2"
+                            )
                         ),
-                        class_="snapshot-controls"
-                    ),
-                    ui.output_ui("contribution_map"),
-                    full_screen=True,
-                    class_="dashboard-plot-card"
+                        # Button in the header that also opens/closes the right sidebar!
+                        ui.input_action_button(
+                            "toggle_choropleth_drawer",
+                            "🌎 Toggle Side-by-Side Global Choropleth",
+                            class_="btn-sm btn-outline-primary"
+                        ),
+                        class_="d-flex align-items-center justify-content-between w-100"
+                    )
                 ),
-            
-                width=1 / 2,
-                class_="dashboard-top-plots"
-            ),
+                ui.layout_sidebar(
+                    ui.sidebar(
+                        ui.div(
+                            ui.div(
+                                ui.tags.strong("🌎 Global Choropleth Snapshot"),
+                                ui.tags.small(
+                                    "Average or animated contribution by country",
+                                    class_="d-block text-muted mb-2"
+                                )
+                            ),
+                            ui.input_radio_buttons(
+                                "snapshot_mode",
+                                "🗺️ Choropleth Mode:",
+                                choices={
+                                    "static": "Period Average",
+                                    "animated": "Yearly Evolution"
+                                },
+                                selected="static",
+                                inline=True
+                            ),
+                            class_="snapshot-controls mb-2 pb-2 border-bottom"
+                        ),
+                        ui.output_ui("contribution_map"),
+                        id="choropleth_right_sidebar",
+                        position="right",
+                        open="closed",   # Starts collapsed so main_plot spans 100% of the UI!
+                        width="48%",     # Opens to a side-by-side split when clicked
+                        bg="#f8f9fa",
+                        padding="12px"
+                    ),
+                    # Main content area (100% width when sidebar is closed, 52% when open)
+                    ui.output_ui("main_plot"),
+                    fillable=True,
+                    border=False
+                ),
+                full_screen=True,
+                fill=True,
+                class_="dashboard-plot-card mb-3"
+            )),
 
             # --- Main Navigation Tabs ---
             ui.navset_card_tab(
