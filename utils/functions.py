@@ -14,6 +14,7 @@ import folium
 import branca.colormap as cm
 import json
 
+
 # Public CDN for country flag PNGs (reliable, fast, no local storage required)
 FLAG_CDN = "https://flagcdn.com/w80"
 
@@ -287,6 +288,7 @@ def create_trends_plot(
                 name=f"{flag_emoji} {country_name}",
                 line=dict(color=color, width=2.5),
                 marker=dict(symbol='circle', size=7, color=color),
+                showlegend=True,
                 hovertemplate=(
                     f"<b>{flag_emoji} {country_name} ({iso_code})</b><br>"
                     "Year: %{x}<br>"
@@ -388,7 +390,7 @@ def create_trends_plot(
             ))
 
     fig.update_layout(
-        height=500,
+        height=700,
         yaxis=dict(
             ticksuffix='%', fixedrange=True,
             title=dict(text="Percentage of New Substances", standoff=5, font=dict(size=12, color='black'))
@@ -402,12 +404,13 @@ def create_trends_plot(
         modebar_remove=['zoom', 'pan', 'lasso', 'select', 'zoomIn', 'zoomOut', 'autoScale'],
         showlegend=True,
         legend=dict(
-            orientation="v", yanchor="top", y=1, xanchor="left", x=1.02,
+            orientation="h", yanchor="bottom", y=-0.8, xanchor="left", x=0.5, 
+            # maxheight=0.5,
             bgcolor="rgba(255,255,255,0.85)", bordercolor="rgba(0,0,0,0.1)", borderwidth=1,
-            title=dict(text="Countries" if mode == "compare_individuals" else "Collaborations", font=dict(size=12))
+            title=dict(text="Countries" if mode == "compare_individuals" else "Collaborations", font=dict(size=8))
         ),
         updatemenus=updatemenus,
-        margin=dict(l=60, r=210, b=60, t=80 if (mode == "find_collaborations" and updatemenus) else 40)
+        margin=dict(l=60, r=30, b=60, t=80 if (mode == "find_collaborations" and updatemenus) else 40)
     )
     return fig
 
@@ -1183,3 +1186,6 @@ def create_china_us_dual_axis_plot(data: pd.DataFrame) -> go.Figure:
         modebar_remove=['zoom', 'pan', 'lasso', 'select', 'zoomIn', 'zoomOut', 'autoScale']
     )
     return fig
+
+
+

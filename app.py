@@ -154,7 +154,8 @@ def create_app():
                     ),
                     ui.output_ui("main_plot"),
                     full_screen=True,
-                    class_="dashboard-plot-card"
+                    fill=True
+                    # class_="dashboard-plot-card"
                 ),
             
                 ui.card(
@@ -273,7 +274,7 @@ def create_app():
                                         "country_picker",
                                         "🔍 Quick Search & Select Countries:",
                                         choices=initial_data['country_choices'],
-                                        selected=["CN", "US", "IN", "DE", "JP"],
+                                        selected=["CN", "US", "IN", "FR", "RU", "GB", "DE", "JP"],
                                         multiple=True,
                                         remove_button=True,
                                         options={"placeholder": "Type country name or ISO code..."}
@@ -424,7 +425,7 @@ def create_app():
 
     def server(input, output, session):
         # Default selection of top 5 countries so the app opens with rich plots immediately!
-        selected_countries = reactive.Value(["CN", "US", "IN", "DE", "JP"])
+        selected_countries = reactive.Value(["CN", "US", "IN", "FR", "RU", "GB", "DE", "JP"])
 
         @reactive.Calc
         def country_list():
