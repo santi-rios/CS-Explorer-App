@@ -258,7 +258,7 @@ def create_trends_plot(
     mode: str,
     show_flags: bool = True
 ) -> go.Figure:
-    """Create interactive trends plot with historical markers and optional flag badges."""
+    """Create interactive trends plot with dynamic y-axis scaling, zoom, and focused tooltips."""
     value_column = 'total_percentage'
     if value_column not in data.columns or data.empty:
         return create_empty_plot("No data available for the current selection.")
@@ -286,13 +286,13 @@ def create_trends_plot(
                 y=c_df[value_column],
                 mode='lines+markers',
                 name=f"{flag_emoji} {country_name}",
-                line=dict(color=color, width=2.5),
+                line=dict(color=color, width=2.2),
                 marker=dict(symbol='circle', size=7, color=color),
                 showlegend=True,
                 hovertemplate=(
                     f"<b>{flag_emoji} {country_name} ({iso_code})</b><br>"
-                    "Year: %{x}<br>"
-                    "Contribution: <b>%{y:.2f}%</b><extra></extra>"
+                    "Year: <b>%{x}</b><br>"
+                    "CS Contribution: <b>%{y:.2f}%</b><extra></extra>"
                 )
             ))
 
@@ -301,11 +301,11 @@ def create_trends_plot(
 
     elif mode == "find_collaborations":
         collab_type_colors = {
-            "Bilateral": "rgba(255, 127, 14, 0.9)",
-            "Trilateral": "rgba(44, 160, 44, 0.9)",
-            "4-country": "rgba(214, 39, 40, 0.9)",
-            "5-country+": "rgba(148, 103, 189, 0.9)",
-            "Unknown": "rgba(127, 127, 127, 0.9)"
+            "Bilateral": "rgba(255, 127, 14, 0.92)",
+            "Trilateral": "rgba(44, 160, 44, 0.90)",
+            "4-country": "rgba(214, 39, 40, 0.90)",
+            "5-country+": "rgba(148, 103, 189, 0.90)",
+            "Unknown": "rgba(127, 127, 127, 0.85)"
         }
         collab_type_symbols = {
             "Bilateral": "circle",
@@ -315,7 +315,15 @@ def create_trends_plot(
             "Unknown": "cross"
         }
 
-        for collab_id_str in data_sorted['plot_group'].unique():
+        # Sort traces by average contribution (highest on top) so legends and hovers prioritize key networks
+        collab_order = (
+            data_sorted.groupby('plot_group')[value_column]
+            .mean()
+            .sort_values(ascending=False)
+            .index.tolist()
+        )
+
+        for rank_idx, collab_id_str in enumerate(collab_order):
             collab_id = str(collab_id_str)
             c_df = data_sorted[data_sorted['plot_group'] == collab_id]
             if c_df.empty:
@@ -339,81 +347,166 @@ def create_trends_plot(
                     ]
                     display_name = " + ".join(highlighted)
 
+            avg_share = float(c_df[value_column].mean())
+            peak_share = float(c_df[value_column].max())
+            trace_color = collab_type_colors.get(collab_type, collab_type_colors["Unknown"])
+
             fig.add_trace(go.Scatter(
                 x=c_df['year'],
                 y=c_df[value_column],
                 mode='lines+markers',
                 name=display_name,
                 meta=collab_type,
-                showlegend=True,
-                line=dict(color=collab_type_colors.get(collab_type, collab_type_colors["Unknown"]), width=2),
+                # Only show the top 12 collaborations in the bottom legend to avoid clutter
+                showlegend=(rank_idx < 12),
+                line=dict(color=trace_color, width=2.0 if rank_idx < 5 else 1.3),
                 marker=dict(
                     symbol=collab_type_symbols.get(collab_type, "circle"),
-                    size=8,
-                    color=collab_type_colors.get(collab_type, collab_type_colors["Unknown"])
+                    size=7 if rank_idx < 5 else 5,
+                    color=trace_color,
+                    line=dict(width=1, color="white")
                 ),
+                # Clean, card-style tooltip for the specific hovered point/line
                 hovertemplate=(
-                    f"<b>Collaboration:</b> {display_name}<br>"
-                    f"Complexity: {collab_type}<br>"
-                    "Year: %{x}<br>"
-                    "Share of New Substances: <b>%{y:.2f}%</b><extra></extra>"
+                    f"<b>{display_name}</b><br>"
+                    f"<span style='color:#666;'>Full Network: {collab_id} ({collab_type})</span><br>"
+                    "Year: <b>%{x}</b><br>"
+                    "Annual Share: <b>%{y:.3f}%</b><br>"
+                    f"<span style='color:#666;'>Period Avg: {avg_share:.3f}% | Peak: {peak_share:.3f}%</span>"
+                    "<extra></extra>"
                 )
             ))
 
-    # Historical context annotations (2008 Financial Crisis & 2020 COVID-19)
+    # Historical context annotations using yref="paper" so they NEVER block y-axis rescaling or zooming!
     if fig.data:
-        all_y = [val for trace in fig.data for val in trace['y'] if val is not None]
-        max_val = max(all_y) if all_y else 10
-        for event_year, label in [(2008, "Financial Crisis"), (2020, "COVID-19")]:
+        for event_year, label in [(2008, "Financial Crisis (2008)"), (2020, "COVID-19 (2020)")]:
             fig.add_vline(x=event_year, line_dash="dot", line_color="rgba(120, 120, 120, 0.55)")
             fig.add_annotation(
-                x=event_year, y=max_val * 0.95, text=label,
-                showarrow=False, textangle=-90, font=dict(size=10, color="#666"), xshift=-10
+                x=event_year,
+                y=0.98,
+                xref="x",
+                yref="paper",  # Anchored to top of frame so y-axis rescales freely!
+                text=label,
+                showarrow=False,
+                textangle=-90,
+                yanchor="top",
+                font=dict(size=10, color="#666"),
+                xshift=-10
             )
 
+    # Dynamic filter buttons that BOTH toggle trace visibility AND rescale the Y-axis!
     updatemenus = []
     if mode == "find_collaborations":
-        collab_types = (
-            sorted(data_sorted['plot_color_group'].dropna().unique().tolist())
+        # Desired logical order for the buttons
+        type_order = ["Bilateral", "Trilateral", "4-country", "5-country+"]
+        present_types = (
+            data_sorted['plot_color_group'].dropna().unique().tolist()
             if 'plot_color_group' in data_sorted.columns else []
         )
+        collab_types = [t for t in type_order if t in present_types] + [
+            t for t in present_types if t not in type_order
+        ]
+
         if collab_types:
-            filter_buttons = [dict(label="All Types", method="restyle", args=[{"visible": [True] * len(fig.data)}])]
+            all_max = float(data_sorted[value_column].max()) if not data_sorted.empty else 1.0
+            all_upper = max(all_max * 1.12, 0.01)
+
+            filter_buttons = [
+                dict(
+                    label="All Types",
+                    method="update",
+                    args=[
+                        {"visible": [True] * len(fig.data)},
+                        {"yaxis.range": [0, all_upper], "yaxis.autorange": False}
+                    ]
+                )
+            ]
+
             for c_type in collab_types:
                 vis = [trace.meta == c_type for trace in fig.data]
-                filter_buttons.append(dict(label=c_type, method="restyle", args=[{"visible": vis}]))
+                sub_vals = data_sorted[data_sorted['plot_color_group'] == c_type][value_column]
+                type_max = float(sub_vals.max()) if not sub_vals.empty else 0.05
+                # Give 15% headroom above the highest point in that specific category
+                type_upper = max(type_max * 1.15, 0.005)
+
+                filter_buttons.append(
+                    dict(
+                        label=c_type,
+                        method="update",
+                        args=[
+                            {"visible": vis},
+                            {"yaxis.range": [0, type_upper], "yaxis.autorange": False}
+                        ]
+                    )
+                )
+
             updatemenus.append(dict(
-                type="buttons", direction="right", active=0, x=0.5, y=1.15,
-                xanchor="center", yanchor="top", buttons=filter_buttons,
-                pad={"r": 5, "t": 10}, bgcolor="rgba(240,240,240,0.95)",
-                bordercolor="#ccc", borderwidth=1
+                type="buttons",
+                direction="right",
+                active=0,
+                x=0.5,
+                y=1.13,
+                xanchor="center",
+                yanchor="top",
+                buttons=filter_buttons,
+                pad={"r": 6, "t": 6},
+                bgcolor="rgba(245,247,250,0.95)",
+                bordercolor="#cbd5e1",
+                borderwidth=1
             ))
 
     fig.update_layout(
-        height=700,
+        height=650,
+        # Enable click-and-drag box zoom directly on the canvas!
+        dragmode='zoom',
         yaxis=dict(
-            ticksuffix='%', fixedrange=True,
+            ticksuffix='%',
+            fixedrange=False,  # Unlocked so users can zoom into any Y-range!
+            rangemode='tozero',
             title=dict(text="Percentage of New Substances", standoff=5, font=dict(size=12, color='black'))
         ),
         xaxis=dict(
-            fixedrange=True,
-            title=dict(text="Year", standoff=5, font=dict(size=12, color='black'))
+            fixedrange=False,  # Unlocked so users can zoom into any year interval!
+            title=dict(text="Year (Drag on chart to zoom, double-click to reset)", standoff=5, font=dict(size=12, color='black'))
         ),
-        hovermode='x unified',
+        # Use 'closest' in collaboration mode to avoid the 25-row wall of 0.00% values
+        hovermode='closest' if mode == "find_collaborations" else 'x unified',
+        hoverdistance=25,
+        hoverlabel=dict(
+            bgcolor="rgba(255,255,255,0.96)",
+            bordercolor="#cbd5e1",
+            font_size=12,
+            font_family="Segoe UI, Arial, sans-serif",
+            align="left"
+        ),
         template='plotly_white',
-        modebar_remove=['zoom', 'pan', 'lasso', 'select', 'zoomIn', 'zoomOut', 'autoScale'],
+        # Keep zoom, pan, zoomIn, zoomOut, autoScale, and resetScale enabled!
+        modebar_remove=['lasso2d', 'select2d'],
         showlegend=True,
         legend=dict(
-            orientation="h", yanchor="bottom", y=-0.8, xanchor="left", x=0.5, 
-            # maxheight=0.5,
-            bgcolor="rgba(255,255,255,0.85)", bordercolor="rgba(0,0,0,0.1)", borderwidth=1,
-            title=dict(text="Countries" if mode == "compare_individuals" else "Collaborations", font=dict(size=8))
+            orientation="h",
+            yanchor="top",
+            y=-0.14,
+            xanchor="center",
+            x=0.5,
+            bgcolor="rgba(255,255,255,0.9)",
+            bordercolor="rgba(0,0,0,0.1)",
+            borderwidth=1,
+            font=dict(size=11),
+            title=dict(
+                text="Countries:" if mode == "compare_individuals" else "Top Collaborations (click to toggle):",
+                font=dict(size=11)
+            )
         ),
         updatemenus=updatemenus,
-        margin=dict(l=60, r=30, b=60, t=80 if (mode == "find_collaborations" and updatemenus) else 40)
+        margin=dict(
+            l=65,
+            r=40,
+            b=110,
+            t=85 if (mode == "find_collaborations" and updatemenus) else 45
+        )
     )
     return fig
-
 
 def create_enhanced_folium_map(
     country_list: pd.DataFrame,
@@ -908,7 +1001,14 @@ def create_contribution_map_plot(
 
     fig.update_layout(
         title={'text': f"<b>{main_title}</b>", 'x': 0.5, 'xanchor': 'center'},
-        geo=dict(
+            legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+                ),
+            geo=dict(
             showframe=False,
             showcoastlines=True,
             coastlinecolor="lightgray",
