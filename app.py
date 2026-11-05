@@ -125,7 +125,7 @@ def create_app():
                 ),
                 ui.p(
                     "Interactive geopolitical explorer of 15.7 million new chemical "
-                    "substances across 155 countries (1996–2022) — ",
+                    "substances across 189 countries and territories (1996–2022) — ",
                     ui.tags.a(
                         "Bermúdez-Montaña et al. (2025), "
                         "Quantitative Science Studies",

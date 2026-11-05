@@ -991,26 +991,25 @@ def create_top_trends_plot(data: pd.DataFrame, title: str) -> go.Figure:
     )
     return fig
 
-
-# Geopolitical Color Scale mapped to sqrt(percentage):
-# 0% = Light Slate | 5-12% = Medium Blue | 18-25% (US 1996-2007 peak) = Heavy Navy Blue
-# 28% (Transition) = Warm Amber | 35-41%+ (China 2015-2022 dominance) = Deep Crimson Red
+# Calibrated for z = np.log10(1 + percentage * 10), where max_z = log10(1 + 41*10) ≈ 2.615:
+# 0.00% -> Muted Slate | 0.02%–1% -> Sky/Bright Blue | 18–25% (US Peak) -> Heavy Navy Blue
+# 28% -> Warm Orange Crossover | 35–41%+ (China Peak) -> Deep Crimson Red
 GEOPOLITICAL_CS_COLORSCALE = [
-    [0.00, "#f1f5f9"],  # 0.0%  - Very light neutral slate
-    [0.12, "#cbd5e1"],  # ~0.6% - Soft grey-slate
-    [0.25, "#7dd3fc"],  # ~2.5% - Light sky blue
-    [0.42, "#2563eb"],  # ~7.0% - Medium royal blue
-    [0.55, "#1d4ed8"],  # ~12%  - Strong blue (US 2022 level / China 2005 level)
-    [0.70, "#00205b"],  # ~20%  - HEAVY US NAVY BLUE (US 1996–2007 dominance!)
-    [0.78, "#4338ca"],  # ~25%  - Deep indigo crossover
-    [0.85, "#ea580c"],  # ~30%  - Warm orange-red surge
-    [0.93, "#dc2626"],  # ~35%  - Vibrant China Red
-    [1.00, "#991b1b"],  # ~41%+ - Deep Crimson Red (China 2022 dominance!)
+    [0.00, "#cbd5e1"],  # 0.00% - Muted slate for 0% in a given year
+    [0.03, "#93c5fd"],  # ~0.02% - Clear sky blue so small countries are visibly colored!
+    [0.18, "#3b82f6"],  # ~0.20% - Bright blue
+    [0.40, "#2563eb"],  # ~1.0%  - Royal blue
+    [0.65, "#1d4ed8"],  # ~5.0%  - Strong blue
+    [0.78, "#1e40af"],  # ~11.0% - Indigo blue (US 2022 level)
+    [0.88, "#001a4d"],  # ~20.0% - HEAVY US NAVY BLUE (US 1996–2007 dominance!)
+    [0.93, "#ea580c"],  # ~28.0% - Warm orange crossover (2013 transition)
+    [0.97, "#dc2626"],  # ~35.0% - Vibrant China Red
+    [1.00, "#991b1b"],  # ~41.0% - Deep China Crimson Red (China 2022 dominance!)
 ]
 
 
 def create_contribution_choropleth(data: pd.DataFrame) -> go.Figure:
-    """Create smooth animated yearly world choropleth map with US-Blue to China-Red palette."""
+    """Create smooth animated yearly world choropleth map with US-Blue to China-Red log-modulus palette."""
     if data.empty or 'total_percentage' not in data.columns:
         return create_empty_plot("No data available for choropleth")
 
@@ -1021,8 +1020,7 @@ def create_contribution_choropleth(data: pd.DataFrame) -> go.Figure:
     # 1. Force integer years so '1996.0' never appears in the slider or legend
     df_clean['year_int'] = df_clean['year'].round().astype(int)
 
-    # 2. Build a complete (country x year) grid so every frame has identical polygon order
-    #    This allows Plotly to smoothly morph colors between years without polygon jumping!
+    # 2. Complete (country x year) grid so every frame has identical polygon order for smooth morphing
     all_years = sorted(df_clean['year_int'].unique())
     country_meta = (
         df_clean[['iso3c', 'iso2c', 'country', 'region']]
@@ -1039,7 +1037,7 @@ def create_contribution_choropleth(data: pd.DataFrame) -> go.Figure:
         grid_index
         .merge(country_meta.reset_index(), on='iso3c', how='left')
         .merge(
-            df_clean[['iso3c', 'year_int', 'total_percentage']],
+            df_clean.groupby(['iso3c', 'year_int'], as_index=False)['total_percentage'].mean(),
             on=['iso3c', 'year_int'],
             how='left'
         )
@@ -1047,74 +1045,70 @@ def create_contribution_choropleth(data: pd.DataFrame) -> go.Figure:
     merged['total_percentage'] = merged['total_percentage'].fillna(0.0)
     merged = merged.sort_values(['year_int', 'iso3c']).reset_index(drop=True)
 
-    # String year column for clean integer labels on the animation slider
     merged['Year'] = merged['year_int'].astype(str)
-    merged['sqrt_pct'] = np.sqrt(merged['total_percentage'].clip(lower=0))
+    merged['color_val'] = np.log10(1.0 + merged['total_percentage'].clip(lower=0) * 10.0)
 
-    # Anchor scale to at least 40% (sqrt(40) = 6.324) so ~20% always lands on Heavy US Blue
-    # and ~35-41% always lands on China Red
     max_val = max(float(merged['total_percentage'].max()), 40.0)
-    tick_vals_real = [0, 1, 5, 10, 20, 30, 40]
+    max_color_val = np.log10(1.0 + max_val * 10.0)
+    tick_vals_real = [0, 0.1, 1, 5, 10, 20, 40]
 
     fig = px.choropleth(
         merged,
         locations="iso3c",
-        color="sqrt_pct",
+        color="color_val",
         hover_name="country",
         custom_data=["country", "iso2c", "Year", "total_percentage", "region"],
         animation_frame="Year",
         animation_group="iso3c",
         color_continuous_scale=GEOPOLITICAL_CS_COLORSCALE,
-        range_color=[0, np.sqrt(max_val)],
+        range_color=[0, max_color_val],
         projection="robinson"
     )
 
     hover_tmpl = (
         "<b>%{customdata[0]}</b> (%{customdata[1]})<br>"
         "Year: <b>%{customdata[2]}</b><br>"
-        "CS Share: <b>%{customdata[3]:.2f}%</b><br>"
+        "CS Share: <b>%{customdata[3]:.3f}%</b><br>"
         "Region: %{customdata[4]}<extra></extra>"
     )
     fig.update_traces(
         hovertemplate=hover_tmpl,
-        marker_line_color="rgba(255,255,255,0.6)",
+        marker_line_color="rgba(255,255,255,0.65)",
         marker_line_width=0.5
     )
     for frame in fig.frames:
         for trace in frame.data:
             trace.hovertemplate = hover_tmpl
-            trace.marker.line.color = "rgba(255,255,255,0.6)"
+            trace.marker.line.color = "rgba(255,255,255,0.65)"
             trace.marker.line.width = 0.5
 
     fig.update_layout(
-        # Ultra-thin colorbar pushed to the right edge so the map fills the container
         coloraxis_colorbar=dict(
             title=dict(text="CS Share", side="right", font=dict(size=10)),
-            thickness=8,          # Very slim bar (default is 30px)
-            len=0.68,             # Compact height
-            x=0.99,               # Flush right
+            thickness=8,
+            len=0.68,
+            x=0.99,
             xpad=2,
             ypad=0,
             outlinewidth=0,
             tickfont=dict(size=9),
-            tickvals=[np.sqrt(v) for v in tick_vals_real],
+            tickvals=[np.log10(1.0 + v * 10.0) for v in tick_vals_real],
             ticktext=[f"{v}%" for v in tick_vals_real]
         ),
         geo=dict(
             showframe=False,
             showcoastlines=True,
-            coastlinecolor="rgba(180,180,180,0.6)",
+            coastlinecolor="rgba(160,160,160,0.6)",
             showland=True,
-            landcolor="#f8fafc",
-            lataxis_range=[-55, 85],  # Crop empty Antarctic space to make countries larger
-            projection_scale=1.08     # Slightly zoom in the globe
+            landcolor="#e2e8f0",      # Soft neutral gray for countries with no reported substances
+            lataxis_range=[-55, 85],
+            projection_scale=1.08
         ),
         template='plotly_white',
         height=560,
         margin=dict(l=0, r=10, t=10, b=0)
     )
 
-    # Clean integer slider labels & smooth animation timing
     if fig.layout.sliders:
         fig.layout.sliders[0].currentvalue = dict(
             prefix="Year: ",
@@ -1131,7 +1125,6 @@ def create_contribution_choropleth(data: pd.DataFrame) -> go.Figure:
         fig.layout.updatemenus[0].pad = dict(r=10, t=12)
         fig.layout.updatemenus[0].x = 0.02
         fig.layout.updatemenus[0].y = 0.05
-        # Play button: smooth 320ms frame with 300ms cubic-in-out color interpolation
         fig.layout.updatemenus[0].buttons[0].args[1]["frame"]["duration"] = 320
         fig.layout.updatemenus[0].buttons[0].args[1]["frame"]["redraw"] = True
         fig.layout.updatemenus[0].buttons[0].args[1]["transition"]["duration"] = 300
@@ -1145,7 +1138,7 @@ def create_contribution_map_plot(
     fill_label: str = "Avg Share",
     main_title: str = "Average Contribution Over Selected Period"
 ) -> go.Figure:
-    """Static choropleth map with matching US-Blue to China-Red palette and slim colorbar."""
+    """Static choropleth map with matching US-Blue to China-Red log-modulus palette and slim colorbar."""
     if processed_data_df.empty or 'total_percentage' not in processed_data_df.columns:
         return create_empty_plot("No data for map")
 
@@ -1160,30 +1153,30 @@ def create_contribution_map_plot(
             last_year=('year', 'max'),
             region=('region', 'first')
         )
-        .round(2)
     )
 
     max_val = max(float(map_data['avg_percentage'].max()), 40.0)
-    tick_vals_real = [0, 1, 5, 10, 20, 30, 40]
-    tick_vals_scaled = [np.sqrt(v) for v in tick_vals_real]
+    max_color_val = np.log10(1.0 + max_val * 10.0)
+    tick_vals_real = [0, 0.1, 1, 5, 10, 20, 40]
+    tick_vals_scaled = [np.log10(1.0 + v * 10.0) for v in tick_vals_real]
 
     loc_col = 'iso3c' if 'iso3c' in map_data.columns else 'country'
     loc_mode = 'ISO-3' if 'iso3c' in map_data.columns else 'country names'
 
     fig = go.Figure(data=go.Choropleth(
         locations=map_data[loc_col],
-        z=np.sqrt(map_data['avg_percentage'].clip(lower=0)),
+        z=np.log10(1.0 + map_data['avg_percentage'].clip(lower=0) * 10.0),
         locationmode=loc_mode,
         colorscale=GEOPOLITICAL_CS_COLORSCALE,
         zmin=0,
-        zmax=np.sqrt(max_val),
-        marker_line_color="rgba(255,255,255,0.6)",
+        zmax=max_color_val,
+        marker_line_color="rgba(255,255,255,0.65)",
         marker_line_width=0.5,
         hovertemplate=(
             "<b>%{customdata[0]}</b> (%{customdata[1]})<br>"
-            "Avg Contribution: <b>%{customdata[2]:.2f}%</b><br>"
+            "Avg Contribution: <b>%{customdata[2]:.3f}%</b><br>"
             "Region: %{customdata[3]}<br>"
-            "Range: %{customdata[4]:.2f}% – %{customdata[5]:.2f}%<br>"
+            "Range: %{customdata[4]:.3f}% – %{customdata[5]:.3f}%<br>"
             "Years: %{customdata[6]:.0f}–%{customdata[7]:.0f}<extra></extra>"
         ),
         customdata=map_data[[
@@ -1208,9 +1201,9 @@ def create_contribution_map_plot(
         geo=dict(
             showframe=False,
             showcoastlines=True,
-            coastlinecolor="rgba(180,180,180,0.6)",
+            coastlinecolor="rgba(160,160,160,0.6)",
             showland=True,
-            landcolor="#f8fafc",
+            landcolor="#e2e8f0",
             lataxis_range=[-55, 85],
             projection_type='robinson',
             projection_scale=1.08,
