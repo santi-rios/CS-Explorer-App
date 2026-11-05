@@ -258,7 +258,7 @@ def create_trends_plot(
     mode: str,
     show_flags: bool = True
 ) -> go.Figure:
-    """Create interactive trends plot with dynamic y-axis scaling, zoom, and focused tooltips."""
+    """Create interactive trends plot with distinct per-line colors, dynamic legends, and zoom."""
     value_column = 'total_percentage'
     if value_column not in data.columns or data.empty:
         return create_empty_plot("No data available for the current selection.")
@@ -300,13 +300,13 @@ def create_trends_plot(
             fig = add_flags_to_trend_plot(fig, data_sorted, value_col=value_column)
 
     elif mode == "find_collaborations":
-        collab_type_colors = {
-            "Bilateral": "rgba(255, 127, 14, 0.92)",
-            "Trilateral": "rgba(44, 160, 44, 0.90)",
-            "4-country": "rgba(214, 39, 40, 0.90)",
-            "5-country+": "rgba(148, 103, 189, 0.90)",
-            "Unknown": "rgba(127, 127, 127, 0.85)"
-        }
+        # High-contrast 24-color palette so every line in a tier gets a distinct color!
+        distinct_palette = (
+            px.colors.qualitative.Bold
+            + px.colors.qualitative.D3
+            + px.colors.qualitative.Dark24
+        )
+        # Keep marker shape tied to collaboration complexity tier
         collab_type_symbols = {
             "Bilateral": "circle",
             "Trilateral": "square",
@@ -314,8 +314,17 @@ def create_trends_plot(
             "5-country+": "triangle-up",
             "Unknown": "cross"
         }
+        # Secondary marker variations so even lines with similar hues have distinct point shapes
+        tier_symbol_variants = {
+            "Bilateral": ["circle", "circle-open", "disc", "circle-dot"],
+            "Trilateral": ["square", "square-open", "square-dot", "square-cross"],
+            "4-country": ["diamond", "diamond-open", "diamond-dot", "diamond-tall"],
+            "5-country+": ["triangle-up", "triangle-up-open", "star", "hexagram"],
+            "Unknown": ["cross", "x"]
+        }
+        line_dashes = ["solid", "dash", "dot", "dashdot", "longdash"]
 
-        # Sort traces by average contribution (highest on top) so legends and hovers prioritize key networks
+        # Sort all collaborations by average contribution (highest first)
         collab_order = (
             data_sorted.groupby('plot_group')[value_column]
             .mean()
@@ -323,7 +332,11 @@ def create_trends_plot(
             .index.tolist()
         )
 
-        for rank_idx, collab_id_str in enumerate(collab_order):
+        # Track how many traces we have seen in each tier to assign distinct colors & ranks per tier
+        tier_counters: Dict[str, int] = {}
+        trace_tier_ranks: List[int] = []
+
+        for overall_rank, collab_id_str in enumerate(collab_order):
             collab_id = str(collab_id_str)
             c_df = data_sorted[data_sorted['plot_group'] == collab_id]
             if c_df.empty:
@@ -335,7 +348,19 @@ def create_trends_plot(
                 if not valid_type.empty:
                     collab_type = str(valid_type.iloc[0])
 
+            # Rank of this collaboration WITHIN its specific complexity tier (0 = #1 in that tier)
+            tier_rank = tier_counters.get(collab_type, 0)
+            tier_counters[collab_type] = tier_rank + 1
+            trace_tier_ranks.append(tier_rank)
+
+            # Distinct color, dash, and marker variation per trace within the tier
+            trace_color = distinct_palette[tier_rank % len(distinct_palette)]
+            dash_style = "solid" if tier_rank < 6 else line_dashes[(tier_rank // 6) % len(line_dashes)]
+            sym_list = tier_symbol_variants.get(collab_type, [collab_type_symbols.get(collab_type, "circle")])
+            marker_sym = sym_list[(tier_rank // 8) % len(sym_list)]
+
             display_name = collab_id
+            short_iso_label = collab_id
             if 'iso2c' in c_df.columns:
                 iso_codes_val = c_df['iso2c'].iloc[0]
                 if isinstance(iso_codes_val, str) and '-' in iso_codes_val:
@@ -346,30 +371,45 @@ def create_trends_plot(
                         for code in iso_codes
                     ]
                     display_name = " + ".join(highlighted)
+                    short_iso_label = "-".join(iso_codes)
 
             avg_share = float(c_df[value_column].mean())
             peak_share = float(c_df[value_column].max())
-            trace_color = collab_type_colors.get(collab_type, collab_type_colors["Unknown"])
+
+            # Emphasize the top 8 in each tier; make minor tail traces thinner & slightly translucent
+            is_top_tier_trace = tier_rank < 8
+            line_width = 2.6 if tier_rank < 3 else (1.9 if is_top_tier_trace else 1.1)
+            marker_size = 8 if tier_rank < 3 else (6.5 if is_top_tier_trace else 5)
+            trace_opacity = 0.95 if is_top_tier_trace else 0.55
+
+            # Add direct end-of-line text label on the final point for the top 3 in each tier
+            text_labels = [""] * len(c_df)
+            if tier_rank < 3 and len(c_df) > 0:
+                text_labels[-1] = f"  {short_iso_label}"
 
             fig.add_trace(go.Scatter(
                 x=c_df['year'],
                 y=c_df[value_column],
-                mode='lines+markers',
-                name=display_name,
+                mode='lines+markers+text' if tier_rank < 3 else 'lines+markers',
+                name=f"{display_name} ({avg_share:.2f}%)",
                 meta=collab_type,
-                # Only show the top 12 collaborations in the bottom legend to avoid clutter
-                showlegend=(rank_idx < 12),
-                line=dict(color=trace_color, width=2.0 if rank_idx < 5 else 1.3),
+                text=text_labels,
+                textposition="middle right",
+                textfont=dict(size=10, color=trace_color),
+                opacity=trace_opacity,
+                # In the default "All Types" view, show the top 12 overall in the legend
+                showlegend=(overall_rank < 12),
+                line=dict(color=trace_color, width=line_width, dash=dash_style),
                 marker=dict(
-                    symbol=collab_type_symbols.get(collab_type, "circle"),
-                    size=7 if rank_idx < 5 else 5,
+                    symbol=marker_sym,
+                    size=marker_size,
                     color=trace_color,
                     line=dict(width=1, color="white")
                 ),
-                # Clean, card-style tooltip for the specific hovered point/line
                 hovertemplate=(
                     f"<b>{display_name}</b><br>"
-                    f"<span style='color:#666;'>Full Network: {collab_id} ({collab_type})</span><br>"
+                    f"<span style='color:#555;'>Tier: <b>{collab_type}</b> (Rank #{tier_rank + 1} in tier)</span><br>"
+                    f"<span style='color:#666;'>Countries: {collab_id}</span><br>"
                     "Year: <b>%{x}</b><br>"
                     "Annual Share: <b>%{y:.3f}%</b><br>"
                     f"<span style='color:#666;'>Period Avg: {avg_share:.3f}% | Peak: {peak_share:.3f}%</span>"
@@ -377,7 +417,7 @@ def create_trends_plot(
                 )
             ))
 
-    # Historical context annotations using yref="paper" so they NEVER block y-axis rescaling or zooming!
+    # Historical context annotations using yref="paper" so they never block y-axis rescaling
     if fig.data:
         for event_year, label in [(2008, "Financial Crisis (2008)"), (2020, "COVID-19 (2020)")]:
             fig.add_vline(x=event_year, line_dash="dot", line_color="rgba(120, 120, 120, 0.55)")
@@ -385,7 +425,7 @@ def create_trends_plot(
                 x=event_year,
                 y=0.98,
                 xref="x",
-                yref="paper",  # Anchored to top of frame so y-axis rescales freely!
+                yref="paper",
                 text=label,
                 showarrow=False,
                 textangle=-90,
@@ -394,10 +434,9 @@ def create_trends_plot(
                 xshift=-10
             )
 
-    # Dynamic filter buttons that BOTH toggle trace visibility AND rescale the Y-axis!
+    # Dynamic filter buttons that update visibility, rescale Y-axis, AND update the Legend for that tier!
     updatemenus = []
     if mode == "find_collaborations":
-        # Desired logical order for the buttons
         type_order = ["Bilateral", "Trilateral", "4-country", "5-country+"]
         present_types = (
             data_sorted['plot_color_group'].dropna().unique().tolist()
@@ -411,12 +450,14 @@ def create_trends_plot(
             all_max = float(data_sorted[value_column].max()) if not data_sorted.empty else 1.0
             all_upper = max(all_max * 1.12, 0.01)
 
+            # "All Types" button: show all traces, and show top 12 overall in the legend
+            all_legend_flags = [i < 12 for i in range(len(fig.data))]
             filter_buttons = [
                 dict(
-                    label="All Types",
+                    label=f"All Types ({len(fig.data)})",
                     method="update",
                     args=[
-                        {"visible": [True] * len(fig.data)},
+                        {"visible": [True] * len(fig.data), "showlegend": all_legend_flags},
                         {"yaxis.range": [0, all_upper], "yaxis.autorange": False}
                     ]
                 )
@@ -424,17 +465,23 @@ def create_trends_plot(
 
             for c_type in collab_types:
                 vis = [trace.meta == c_type for trace in fig.data]
+                # Show the top 12 traces OF THIS SPECIFIC TIER in the bottom legend when selected!
+                tier_legend_flags = [
+                    (trace.meta == c_type and trace_tier_ranks[idx] < 12)
+                    for idx, trace in enumerate(fig.data)
+                ]
+                tier_count = sum(vis)
+
                 sub_vals = data_sorted[data_sorted['plot_color_group'] == c_type][value_column]
                 type_max = float(sub_vals.max()) if not sub_vals.empty else 0.05
-                # Give 15% headroom above the highest point in that specific category
                 type_upper = max(type_max * 1.15, 0.005)
 
                 filter_buttons.append(
                     dict(
-                        label=c_type,
+                        label=f"{c_type} ({tier_count})",
                         method="update",
                         args=[
-                            {"visible": vis},
+                            {"visible": vis, "showlegend": tier_legend_flags},
                             {"yaxis.range": [0, type_upper], "yaxis.autorange": False}
                         ]
                     )
@@ -455,21 +502,24 @@ def create_trends_plot(
                 borderwidth=1
             ))
 
+    max_yr = int(data_sorted['year'].max()) if not data_sorted.empty else 2022
+    min_yr = int(data_sorted['year'].min()) if not data_sorted.empty else 1996
+
     fig.update_layout(
-        height=650,
-        # Enable click-and-drag box zoom directly on the canvas!
+        height=660,
         dragmode='zoom',
         yaxis=dict(
             ticksuffix='%',
-            fixedrange=False,  # Unlocked so users can zoom into any Y-range!
+            fixedrange=False,
             rangemode='tozero',
             title=dict(text="Percentage of New Substances", standoff=5, font=dict(size=12, color='black'))
         ),
         xaxis=dict(
-            fixedrange=False,  # Unlocked so users can zoom into any year interval!
+            fixedrange=False,
+            # Extra right margin in collaboration mode so end-of-line ISO labels fit cleanly
+            range=[min_yr - 0.5, max_yr + (1.8 if mode == "find_collaborations" else 2.2)],
             title=dict(text="Year (Drag on chart to zoom, double-click to reset)", standoff=5, font=dict(size=12, color='black'))
         ),
-        # Use 'closest' in collaboration mode to avoid the 25-row wall of 0.00% values
         hovermode='closest' if mode == "find_collaborations" else 'x unified',
         hoverdistance=25,
         hoverlabel=dict(
@@ -480,7 +530,6 @@ def create_trends_plot(
             align="left"
         ),
         template='plotly_white',
-        # Keep zoom, pan, zoomIn, zoomOut, autoScale, and resetScale enabled!
         modebar_remove=['lasso2d', 'select2d'],
         showlegend=True,
         legend=dict(
@@ -494,7 +543,7 @@ def create_trends_plot(
             borderwidth=1,
             font=dict(size=11),
             title=dict(
-                text="Countries:" if mode == "compare_individuals" else "Top Collaborations (click to toggle):",
+                text="Countries:" if mode == "compare_individuals" else "Top 12 in Active View (click to hide, double-click to isolate):",
                 font=dict(size=11)
             )
         ),
@@ -502,12 +551,11 @@ def create_trends_plot(
         margin=dict(
             l=65,
             r=40,
-            b=110,
+            b=115,
             t=85 if (mode == "find_collaborations" and updatemenus) else 45
         )
     )
     return fig
-
 def create_enhanced_folium_map(
     country_list: pd.DataFrame,
     selected_countries: List[str],
