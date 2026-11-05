@@ -992,12 +992,160 @@ def create_top_trends_plot(data: pd.DataFrame, title: str) -> go.Figure:
     return fig
 
 
+# Geopolitical Color Scale mapped to sqrt(percentage):
+# 0% = Light Slate | 5-12% = Medium Blue | 18-25% (US 1996-2007 peak) = Heavy Navy Blue
+# 28% (Transition) = Warm Amber | 35-41%+ (China 2015-2022 dominance) = Deep Crimson Red
+GEOPOLITICAL_CS_COLORSCALE = [
+    [0.00, "#f1f5f9"],  # 0.0%  - Very light neutral slate
+    [0.12, "#cbd5e1"],  # ~0.6% - Soft grey-slate
+    [0.25, "#7dd3fc"],  # ~2.5% - Light sky blue
+    [0.42, "#2563eb"],  # ~7.0% - Medium royal blue
+    [0.55, "#1d4ed8"],  # ~12%  - Strong blue (US 2022 level / China 2005 level)
+    [0.70, "#00205b"],  # ~20%  - HEAVY US NAVY BLUE (US 1996–2007 dominance!)
+    [0.78, "#4338ca"],  # ~25%  - Deep indigo crossover
+    [0.85, "#ea580c"],  # ~30%  - Warm orange-red surge
+    [0.93, "#dc2626"],  # ~35%  - Vibrant China Red
+    [1.00, "#991b1b"],  # ~41%+ - Deep Crimson Red (China 2022 dominance!)
+]
+
+
+def create_contribution_choropleth(data: pd.DataFrame) -> go.Figure:
+    """Create smooth animated yearly world choropleth map with US-Blue to China-Red palette."""
+    if data.empty or 'total_percentage' not in data.columns:
+        return create_empty_plot("No data available for choropleth")
+
+    df_clean = data.dropna(subset=['total_percentage', 'year', 'iso3c']).copy()
+    if df_clean.empty:
+        return create_empty_plot("No valid country data available for choropleth")
+
+    # 1. Force integer years so '1996.0' never appears in the slider or legend
+    df_clean['year_int'] = df_clean['year'].round().astype(int)
+
+    # 2. Build a complete (country x year) grid so every frame has identical polygon order
+    #    This allows Plotly to smoothly morph colors between years without polygon jumping!
+    all_years = sorted(df_clean['year_int'].unique())
+    country_meta = (
+        df_clean[['iso3c', 'iso2c', 'country', 'region']]
+        .drop_duplicates(subset=['iso3c'])
+        .set_index('iso3c')
+    )
+
+    grid_index = pd.MultiIndex.from_product(
+        [country_meta.index, all_years],
+        names=['iso3c', 'year_int']
+    ).to_frame().reset_index(drop=True)
+
+    merged = (
+        grid_index
+        .merge(country_meta.reset_index(), on='iso3c', how='left')
+        .merge(
+            df_clean[['iso3c', 'year_int', 'total_percentage']],
+            on=['iso3c', 'year_int'],
+            how='left'
+        )
+    )
+    merged['total_percentage'] = merged['total_percentage'].fillna(0.0)
+    merged = merged.sort_values(['year_int', 'iso3c']).reset_index(drop=True)
+
+    # String year column for clean integer labels on the animation slider
+    merged['Year'] = merged['year_int'].astype(str)
+    merged['sqrt_pct'] = np.sqrt(merged['total_percentage'].clip(lower=0))
+
+    # Anchor scale to at least 40% (sqrt(40) = 6.324) so ~20% always lands on Heavy US Blue
+    # and ~35-41% always lands on China Red
+    max_val = max(float(merged['total_percentage'].max()), 40.0)
+    tick_vals_real = [0, 1, 5, 10, 20, 30, 40]
+
+    fig = px.choropleth(
+        merged,
+        locations="iso3c",
+        color="sqrt_pct",
+        hover_name="country",
+        custom_data=["country", "iso2c", "Year", "total_percentage", "region"],
+        animation_frame="Year",
+        animation_group="iso3c",
+        color_continuous_scale=GEOPOLITICAL_CS_COLORSCALE,
+        range_color=[0, np.sqrt(max_val)],
+        projection="robinson"
+    )
+
+    hover_tmpl = (
+        "<b>%{customdata[0]}</b> (%{customdata[1]})<br>"
+        "Year: <b>%{customdata[2]}</b><br>"
+        "CS Share: <b>%{customdata[3]:.2f}%</b><br>"
+        "Region: %{customdata[4]}<extra></extra>"
+    )
+    fig.update_traces(
+        hovertemplate=hover_tmpl,
+        marker_line_color="rgba(255,255,255,0.6)",
+        marker_line_width=0.5
+    )
+    for frame in fig.frames:
+        for trace in frame.data:
+            trace.hovertemplate = hover_tmpl
+            trace.marker.line.color = "rgba(255,255,255,0.6)"
+            trace.marker.line.width = 0.5
+
+    fig.update_layout(
+        # Ultra-thin colorbar pushed to the right edge so the map fills the container
+        coloraxis_colorbar=dict(
+            title=dict(text="CS Share", side="right", font=dict(size=10)),
+            thickness=8,          # Very slim bar (default is 30px)
+            len=0.68,             # Compact height
+            x=0.99,               # Flush right
+            xpad=2,
+            ypad=0,
+            outlinewidth=0,
+            tickfont=dict(size=9),
+            tickvals=[np.sqrt(v) for v in tick_vals_real],
+            ticktext=[f"{v}%" for v in tick_vals_real]
+        ),
+        geo=dict(
+            showframe=False,
+            showcoastlines=True,
+            coastlinecolor="rgba(180,180,180,0.6)",
+            showland=True,
+            landcolor="#f8fafc",
+            lataxis_range=[-55, 85],  # Crop empty Antarctic space to make countries larger
+            projection_scale=1.08     # Slightly zoom in the globe
+        ),
+        template='plotly_white',
+        height=560,
+        margin=dict(l=0, r=10, t=10, b=0)
+    )
+
+    # Clean integer slider labels & smooth animation timing
+    if fig.layout.sliders:
+        fig.layout.sliders[0].currentvalue = dict(
+            prefix="Year: ",
+            font=dict(size=14, color="#1e293b"),
+            visible=True,
+            xanchor="left"
+        )
+        fig.layout.sliders[0].pad = dict(t=5, b=5)
+        fig.layout.sliders[0].len = 0.85
+        fig.layout.sliders[0].x = 0.12
+        fig.layout.sliders[0].transition = dict(duration=300, easing="cubic-in-out")
+
+    if fig.layout.updatemenus:
+        fig.layout.updatemenus[0].pad = dict(r=10, t=12)
+        fig.layout.updatemenus[0].x = 0.02
+        fig.layout.updatemenus[0].y = 0.05
+        # Play button: smooth 320ms frame with 300ms cubic-in-out color interpolation
+        fig.layout.updatemenus[0].buttons[0].args[1]["frame"]["duration"] = 320
+        fig.layout.updatemenus[0].buttons[0].args[1]["frame"]["redraw"] = True
+        fig.layout.updatemenus[0].buttons[0].args[1]["transition"]["duration"] = 300
+        fig.layout.updatemenus[0].buttons[0].args[1]["transition"]["easing"] = "cubic-in-out"
+
+    return fig
+
+
 def create_contribution_map_plot(
     processed_data_df: pd.DataFrame,
-    fill_label: str = "Avg Contribution (%)",
+    fill_label: str = "Avg Share",
     main_title: str = "Average Contribution Over Selected Period"
 ) -> go.Figure:
-    """Static choropleth map showing average country contribution over the selected period."""
+    """Static choropleth map with matching US-Blue to China-Red palette and slim colorbar."""
     if processed_data_df.empty or 'total_percentage' not in processed_data_df.columns:
         return create_empty_plot("No data for map")
 
@@ -1015,8 +1163,8 @@ def create_contribution_map_plot(
         .round(2)
     )
 
-    max_val = max(float(map_data['avg_percentage'].max()), 1.0)
-    tick_vals_real = [v for v in [0, 0.5, 2, 5, 10, 20, 30, 40] if v <= max_val * 1.1]
+    max_val = max(float(map_data['avg_percentage'].max()), 40.0)
+    tick_vals_real = [0, 1, 5, 10, 20, 30, 40]
     tick_vals_scaled = [np.sqrt(v) for v in tick_vals_real]
 
     loc_col = 'iso3c' if 'iso3c' in map_data.columns else 'country'
@@ -1026,9 +1174,11 @@ def create_contribution_map_plot(
         locations=map_data[loc_col],
         z=np.sqrt(map_data['avg_percentage'].clip(lower=0)),
         locationmode=loc_mode,
-        colorscale='Viridis',
+        colorscale=GEOPOLITICAL_CS_COLORSCALE,
         zmin=0,
         zmax=np.sqrt(max_val),
+        marker_line_color="rgba(255,255,255,0.6)",
+        marker_line_width=0.5,
         hovertemplate=(
             "<b>%{customdata[0]}</b> (%{customdata[1]})<br>"
             "Avg Contribution: <b>%{customdata[2]:.2f}%</b><br>"
@@ -1041,86 +1191,36 @@ def create_contribution_map_plot(
             'min_percentage', 'max_percentage', 'first_year', 'last_year'
         ]].values,
         colorbar=dict(
-            title=dict(text=fill_label, side="right"),
+            title=dict(text=fill_label, side="right", font=dict(size=10)),
+            thickness=8,
+            len=0.68,
+            x=0.99,
+            xpad=2,
+            outlinewidth=0,
+            tickfont=dict(size=9),
             tickvals=tick_vals_scaled,
             ticktext=[f"{v}%" for v in tick_vals_real]
         )
     ))
 
     fig.update_layout(
-        title={'text': f"<b>{main_title}</b>", 'x': 0.5, 'xanchor': 'center'},
-            legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="right",
-            x=1
-                ),
-            geo=dict(
+        title={'text': f"<b>{main_title}</b>", 'x': 0.5, 'xanchor': 'center', 'font': {'size': 13}},
+        geo=dict(
             showframe=False,
             showcoastlines=True,
-            coastlinecolor="lightgray",
+            coastlinecolor="rgba(180,180,180,0.6)",
+            showland=True,
+            landcolor="#f8fafc",
+            lataxis_range=[-55, 85],
             projection_type='robinson',
+            projection_scale=1.08,
             bgcolor='rgba(0,0,0,0)'
         ),
         template='plotly_white',
         height=550,
-        margin=dict(l=0, r=0, t=50, b=0)
+        margin=dict(l=0, r=10, t=35, b=0)
     )
     return fig
-
-
-def create_contribution_choropleth(data: pd.DataFrame) -> go.Figure:
-    """Create animated yearly world choropleth map."""
-    if data.empty or 'total_percentage' not in data.columns:
-        return create_empty_plot("No data available for choropleth")
-
-    anim_data = data.sort_values('year').dropna(subset=['total_percentage']).copy()
-    anim_data['sqrt_pct'] = np.sqrt(anim_data['total_percentage'].clip(lower=0))
-    max_val = max(float(anim_data['total_percentage'].max()), 1.0)
-    tick_vals_real = [v for v in [0, 0.5, 2, 5, 10, 20, 30, 40] if v <= max_val * 1.1]
-
-    fig = px.choropleth(
-        anim_data,
-        locations="iso3c",
-        color="sqrt_pct",
-        hover_name="country",
-        custom_data=["country", "iso2c", "year", "total_percentage", "region"],
-        animation_frame="year",
-        color_continuous_scale="Viridis",
-        range_color=[0, np.sqrt(max_val)],
-        projection="robinson"
-    )
-
-    hover_tmpl = (
-        "<b>%{customdata[0]}</b> (%{customdata[1]})<br>"
-        "Year: %{customdata[2]}<br>"
-        "Contribution: <b>%{customdata[3]:.2f}%</b><br>"
-        "Region: %{customdata[4]}<extra></extra>"
-    )
-    fig.update_traces(hovertemplate=hover_tmpl)
-    for frame in fig.frames:
-        for trace in frame.data:
-            trace.hovertemplate = hover_tmpl
-
-    fig.update_layout(
-        coloraxis_colorbar=dict(
-            title=dict(text="Contribution (%)", side="right"),
-            tickvals=[np.sqrt(v) for v in tick_vals_real],
-            ticktext=[f"{v}%" for v in tick_vals_real]
-        ),
-        geo=dict(showframe=False, showcoastlines=True, coastlinecolor="lightgray"),
-        template='plotly_white',
-        height=550,
-        margin=dict(l=0, r=0, t=30, b=0)
-    )
-
-    if fig.layout.updatemenus:
-        fig.layout.updatemenus[0].buttons[0].args[1]["frame"]["duration"] = 500
-        fig.layout.updatemenus[0].buttons[0].args[1]["transition"]["duration"] = 250
-
-    return fig
-
 
 def create_summary_dataframe(data: pd.DataFrame, mode: str) -> pd.DataFrame:
     """Create summary statistics table with flag emojis."""

@@ -178,7 +178,7 @@ def create_app():
                                     "static": "Period Average",
                                     "animated": "Yearly Evolution"
                                 },
-                                selected="static",
+                                selected="animated",
                                 inline=True
                             ),
                             class_="snapshot-controls mb-2 pb-2 border-bottom"
