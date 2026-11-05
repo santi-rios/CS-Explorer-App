@@ -199,7 +199,8 @@ def create_app():
                 full_screen=True,
                 fill=True,
                 class_="dashboard-plot-card mb-3"
-            )),
+                )
+            ),
 
             # --- Main Navigation Tabs ---
             ui.navset_card_tab(
@@ -284,7 +285,9 @@ def create_app():
                                         "country_picker",
                                         "🔍 Quick Search & Select Countries:",
                                         choices=initial_data['country_choices'],
-                                        selected=["CN", "US", "IN", "FR", "RU", "GB", "DE", "JP"],
+                                        selected=["CN", "US"
+                                                #   , "IN", "FR", "RU", "GB", "DE", "JP"
+                                                  ],
                                         multiple=True,
                                         remove_button=True,
                                         options={"placeholder": "Type country name or ISO code..."}
@@ -418,7 +421,14 @@ def create_app():
                 width=1/2
             )
         ),
-        header=ui.tags.script(plotly_offline.get_plotlyjs()),
+        header=ui.tags.head(
+            ui.tags.script(plotly_offline.get_plotlyjs()),
+            ui.tags.script("""
+                Shiny.addCustomMessageHandler('trigger_plotly_resize', function(msg) {
+                    setTimeout(function() { window.dispatchEvent(new Event('resize')); }, 260);
+                });
+            """)
+        ),
         title="Chemical Space Explorer",
         theme=shinyswatch.theme.flatly,
         footer=ui.div(
@@ -435,7 +445,9 @@ def create_app():
 
     def server(input, output, session):
         # Default selection of top 5 countries so the app opens with rich plots immediately!
-        selected_countries = reactive.Value(["CN", "US", "IN", "FR", "RU", "GB", "DE", "JP"])
+        selected_countries = reactive.Value(["CN", "US", 
+                                            #  "IN", "FR", "RU", "GB", "DE", "JP"
+                                             ])
 
         @reactive.Calc
         def country_list():
@@ -478,7 +490,21 @@ def create_app():
             if picker_isos != selected_countries.get():
                 selected_countries.set(picker_isos)
 
+        # 1. Allow the header button to open/close the right sidebar drawer
+        @reactive.Effect
+        @reactive.event(input.toggle_choropleth_drawer)
+        def _toggle_right_drawer():
+            is_currently_open = bool(input.choropleth_right_sidebar())
+            ui.update_sidebar("choropleth_right_sidebar", show=not is_currently_open)
+
+        # 2. Trigger Plotly responsive resize when the right sidebar opens or closes
+        @reactive.Effect
+        @reactive.event(input.choropleth_right_sidebar)
+        async def _resize_plotly_on_sidebar_toggle():
+            await session.send_custom_message("trigger_plotly_resize", {})
+        
         # 2. Sync Folium map click -> reactive selected_countries AND dropdown
+        
         @reactive.Effect
         @reactive.event(input.map_click_iso)
         def _handle_map_click():
