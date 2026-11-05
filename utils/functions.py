@@ -636,7 +636,8 @@ def create_enhanced_folium_map(
         caption="Avg Chemical Space Share (%) [√-scaled intensity]"
     )
 
-    iso_to_geometry = get_world_geometries() if map_style == "polygons" else {}
+    iso_to_geometry = get_world_geometries() if map_style in ["polygons", "cartogram"] else {}
+    cartogram_base = get_cartogram_base_geometries() if map_style == "cartogram" else {}
 
     for _, row in country_list.iterrows():
         iso = str(row['iso2c']).strip().upper()
@@ -715,8 +716,16 @@ def create_enhanced_folium_map(
                 popup=folium.Popup(popup_html, max_width=240)
             ).add_to(m)
 
-        elif map_style == "polygons":
+        elif map_style in ["polygons", "cartogram"]:
             geometry = iso_to_geometry.get(iso)
+            if map_style == "cartogram":
+                c_entry = cartogram_base.get( f"ISO2_{iso}" )
+                if c_entry is not None:
+                    norm_area = np.clip(c_entry["area"] / 25.0, 0.25, 18.0)
+                    scale_k = 0.18 if avg_val <= 0.001 else float(np.clip(np.sqrt(max((avg_val / 4.0) / np.sqrt(norm_area), 0.03)), 0.18, 2.35))
+                    cx, cy = c_entry["centroid"]
+                    geometry = _scale_geojson_geometry(c_entry["geometry"], cx, cy, scale_k)
+
             fill_col = colormap(np.sqrt(max(avg_val, 0.0))) if avg_val > 0 else "#d1d5db"
             if geometry is not None:
                 folium.GeoJson(
@@ -762,7 +771,7 @@ def create_enhanced_folium_map(
                 popup=folium.Popup(popup_html, max_width=240)
             ).add_to(m)
 
-    if map_style in ["bubbles", "polygons"]:
+    if map_style in ["bubbles", "polygons", "cartogram"]:
         colormap.add_to(m)
     folium.LayerControl(position="topright", collapsed=True).add_to(m)
     return m
@@ -1430,3 +1439,388 @@ def create_china_us_dual_axis_plot(data: pd.DataFrame) -> go.Figure:
 
 
 
+import copy
+
+@lru_cache(maxsize=1)
+def get_cartogram_base_geometries(world_path: str = "./data/world_boundaries.geojson") -> dict:
+    """
+    Load world_boundaries.geojson once and precompute each country's (ISO3 and ISO2)
+    main landmass centroid (lon, lat) and approximate planar area so cartograms render in milliseconds.
+    """
+    base_geoms = {}
+    try:
+        with open(world_path, "r", encoding="utf-8") as f:
+            geojson_data = json.load(f)
+
+        for feature in geojson_data.get("features", []):
+            props = feature.get("properties") or {}
+            geom = feature.get("geometry")
+            if not geom:
+                continue
+
+            # Extract ISO-3 and ISO-2 codes
+            iso3 = None
+            for col in ['iso_a3_eh', 'iso_a3', 'adm0_a3', 'wb_a3', 'ISO_A3', 'iso3c']:
+                val = props.get(col)
+                if isinstance(val, str) and len(val.strip()) == 3 and val.strip() != "-99":
+                    iso3 = val.strip().upper()
+                    break
+
+            iso2 = None
+            for col in ['iso_a2_eh', 'wb_a2', 'iso_a2', 'ISO_A2', 'iso2c']:
+                val = props.get(col)
+                if isinstance(val, str) and len(val.strip()) == 2 and val.strip() != "-99":
+                    iso2 = val.strip().upper()
+                    break
+
+            # Collect all exterior polygon rings to find the main continental landmass centroid
+            rings = []
+            if geom["type"] == "Polygon":
+                if geom["coordinates"]:
+                    rings.append(np.array(geom["coordinates"][0], dtype=float))
+            elif geom["type"] == "MultiPolygon":
+                for poly in geom["coordinates"]:
+                    if poly and len(poly[0]) >= 3:
+                        rings.append(np.array(poly[0], dtype=float))
+
+            if not rings:
+                continue
+
+            # Compute shoelace area of each ring (weighted by cos(latitude) for spherical correction)
+            total_area = 0.0
+            best_ring = rings[0]
+            best_area = -1.0
+            for r in rings:
+                lon, lat = r[:, 0], r[:, 1]
+                cos_lat = np.cos(np.radians(np.mean(lat)))
+                area = 0.5 * np.abs(np.dot(lon, np.roll(lat, 1)) - np.dot(lat, np.roll(lon, 1))) * cos_lat
+                total_area += area
+                if area > best_area:
+                    best_area = area
+                    best_ring = r
+
+            # Anchor centroid to the largest contiguous landmass (so Alaska/French Guiana don't pull the centroid into the ocean)
+            cx = float(np.mean(best_ring[:, 0]))
+            cy = float(np.mean(best_ring[:, 1]))
+
+            entry = {
+                "geometry": geom,
+                "centroid": (cx, cy),
+                "area": max(total_area, 0.25)
+            }
+            if iso3:
+                base_geoms[iso3] = entry
+            if iso2:
+                base_geoms[f"ISO2_{iso2}"] = entry
+
+    except Exception as e:
+        print(f"Warning: Could not build cartogram base geometries: {e}")
+
+    return base_geoms
+
+
+def _scale_geojson_geometry(geom: dict, cx: float, cy: float, scale: float) -> dict:
+    """Scale all polygon coordinates radially around (cx, cy) by factor `scale`."""
+    if geom["type"] == "Polygon":
+        new_coords = []
+        for ring in geom["coordinates"]:
+            arr = np.array(ring, dtype=float)
+            arr[:, 0] = cx + (arr[:, 0] - cx) * scale
+            arr[:, 1] = cy + (arr[:, 1] - cy) * scale
+            # Clamp latitude to valid bounds
+            arr[:, 1] = np.clip(arr[:, 1], -85.0, 85.0)
+            new_coords.append(np.round(arr, 3).tolist())
+        return {"type": "Polygon", "coordinates": new_coords}
+
+    elif geom["type"] == "MultiPolygon":
+        new_polys = []
+        for poly in geom["coordinates"]:
+            new_rings = []
+            for ring in poly:
+                arr = np.array(ring, dtype=float)
+                arr[:, 0] = cx + (arr[:, 0] - cx) * scale
+                arr[:, 1] = cy + (arr[:, 1] - cy) * scale
+                arr[:, 1] = np.clip(arr[:, 1], -85.0, 85.0)
+                new_rings.append(np.round(arr, 3).tolist())
+            new_polys.append(new_rings)
+        return {"type": "MultiPolygon", "coordinates": new_polys}
+
+    return geom
+
+
+def create_cartogram_plot(
+    data: pd.DataFrame,
+    main_title: str = "Geopolitical Cartogram — Country Size Deformed by CS Share (%)",
+    animated: bool = False
+) -> go.Figure:
+    """
+    Create a Non-Contiguous Area Cartogram (static period average or animated yearly)
+    where each country's polygon geometry is deformed proportional to its CS share (%),
+    preserving the US-Blue -> China-Red geopolitical color scale.
+    """
+    if data.empty or 'total_percentage' not in data.columns:
+        return create_empty_plot("No data available for cartogram")
+
+    base_geoms = get_cartogram_base_geometries()
+    if not base_geoms:
+        return create_empty_plot("GeoJSON boundaries required for cartogram")
+
+    def compute_scale_factor(pct: float, geo_area: float) -> float:
+        """
+        Compute linear scaling factor k so visual area (k^2 * geo_area) reflects CS share (%).
+        Blends area-normalized target size with direct share scaling so both compact scientific
+        powerhouses (JP, DE, GB, KR, IN) and large leaders (CN, US) deform dramatically and cleanly.
+        """
+        if pct <= 0.001:
+            return 0.16  # Shrink zero/near-zero countries into tiny reference silhouettes
+        # Normalize geographic area relative to a medium-sized country (~25 sq deg)
+        norm_area = np.clip(geo_area / 25.0, 0.25, 18.0)
+        # Desired target area proportional to CS share
+        target_area_ratio = (pct / 4.0) / np.sqrt(norm_area)
+        k = np.sqrt(max(target_area_ratio, 0.03))
+        # Clamp between 0.18x (tiny contributors) and 2.35x (dominant 41% superpower)
+        return float(np.clip(k, 0.18, 2.35))
+
+    max_val = max(float(data['total_percentage'].max()), 40.0)
+    max_color_val = np.log10(1.0 + max_val * 10.0)
+    tick_vals_real = [0, 0.1, 1, 5, 10, 20, 40]
+    tick_vals_scaled = [np.log10(1.0 + v * 10.0) for v in tick_vals_real]
+
+    if not animated:
+        # --- STATIC PERIOD-AVERAGE CARTOGRAM ---
+        group_cols = ['iso3c', 'iso2c', 'country'] if 'iso3c' in data.columns else ['iso2c', 'country']
+        map_data = (
+            data.groupby(group_cols, as_index=False)
+            .agg(
+                avg_percentage=('total_percentage', 'mean'),
+                max_percentage=('total_percentage', 'max'),
+                min_percentage=('total_percentage', 'min'),
+                first_year=('year', 'min'),
+                last_year=('year', 'max'),
+                region=('region', 'first')
+            )
+        )
+
+        features = []
+        valid_rows = []
+        for _, row in map_data.iterrows():
+            iso3 = str(row.get('iso3c', '')).strip().upper()
+            iso2 = str(row.get('iso2c', '')).strip().upper()
+            entry = base_geoms.get(iso3) or base_geoms.get(f"ISO2_{iso2}")
+            if not entry:
+                continue
+
+            pct = float(row['avg_percentage'])
+            scale_k = compute_scale_factor(pct, entry["area"])
+            cx, cy = entry["centroid"]
+            scaled_geom = _scale_geojson_geometry(entry["geometry"], cx, cy, scale_k)
+            feat_id = iso3 if iso3 else iso2
+
+            features.append({
+                "type": "Feature",
+                "id": feat_id,
+                "geometry": scaled_geom,
+                "properties": {"id": feat_id}
+            })
+            row_copy = row.to_dict()
+            row_copy["feat_id"] = feat_id
+            row_copy["scale_k"] = scale_k
+            valid_rows.append(row_copy)
+
+        if not valid_rows:
+            return create_empty_plot("Could not match country geometries for cartogram")
+
+        plot_df = pd.DataFrame(valid_rows)
+        custom_geojson = {"type": "FeatureCollection", "features": features}
+
+        fig = go.Figure(data=go.Choropleth(
+            geojson=custom_geojson,
+            locations=plot_df['feat_id'],
+            featureidkey="id",
+            z=np.log10(1.0 + plot_df['avg_percentage'].clip(lower=0) * 10.0),
+            colorscale=GEOPOLITICAL_CS_COLORSCALE,
+            zmin=0,
+            zmax=max_color_val,
+            marker_line_color="rgba(15, 23, 42, 0.75)",
+            marker_line_width=0.9,
+            hovertemplate=(
+                "<b>%{customdata[0]}</b> (%{customdata[1]})<br>"
+                "Avg CS Share: <b>%{customdata[2]:.3f}%</b><br>"
+                "Cartogram Linear Scale: <b>%{customdata[7]:.2f}×</b><br>"
+                "Region: %{customdata[3]}<br>"
+                "Range: %{customdata[4]:.3f}% – %{customdata[5]:.3f}%<br>"
+                "Years: %{customdata[6]:.0f}–%{customdata[7_yr]:.0f}<extra></extra>"
+            ).replace("%{customdata[7_yr]:.0f}", "%{customdata[8]:.0f}"),
+            customdata=plot_df[[
+                'country', 'iso2c', 'avg_percentage', 'region',
+                'min_percentage', 'max_percentage', 'first_year', 'scale_k', 'last_year'
+            ]].values,
+            colorbar=dict(
+                title=dict(text="CS Share", side="right", font=dict(size=10)),
+                thickness=8,
+                len=0.68,
+                x=0.99,
+                xpad=2,
+                outlinewidth=0,
+                tickfont=dict(size=9),
+                tickvals=tick_vals_scaled,
+                ticktext=[f"{v}%" for v in tick_vals_real]
+            )
+        ))
+
+        fig.update_layout(
+            title={'text': f"<b>{main_title}</b>", 'x': 0.5, 'xanchor': 'center', 'font': {'size': 13}},
+            geo=dict(
+                showframe=False,
+                # Faint true coastlines in the background so users see how much each country swelled or shrank!
+                showcoastlines=True,
+                coastlinecolor="rgba(148, 163, 184, 0.35)",
+                showcountries=True,
+                countrycolor="rgba(203, 213, 225, 0.35)",
+                showland=True,
+                landcolor="#f8fafc",
+                lataxis_range=[-55, 85],
+                projection_type='robinson',
+                projection_scale=1.08,
+                bgcolor='rgba(0,0,0,0)'
+            ),
+            template='plotly_white',
+            height=560,
+            margin=dict(l=0, r=10, t=35, b=0)
+        )
+        return fig
+
+    else:
+        # --- ANIMATED YEAR-BY-YEAR DEFORMING CARTOGRAM (1996–2022) ---
+        df_clean = data.dropna(subset=['total_percentage', 'year', 'iso3c']).copy()
+        df_clean['year_int'] = df_clean['year'].round().astype(int)
+        all_years = sorted(df_clean['year_int'].unique())
+
+        country_meta = (
+            df_clean[['iso3c', 'iso2c', 'country', 'region']]
+            .drop_duplicates(subset=['iso3c'])
+            .set_index('iso3c')
+        )
+        # Keep only countries that exist in base_geoms
+        valid_iso3s = [
+            iso3 for iso3 in country_meta.index
+            if (iso3 in base_geoms) or (f"ISO2_{country_meta.loc[iso3, 'iso2c']}" in base_geoms)
+        ]
+        country_meta = country_meta.loc[valid_iso3s]
+
+        frames = []
+        slider_steps = []
+        first_trace = None
+
+        for yr in all_years:
+            yr_df = df_clean[df_clean['year_int'] == yr].groupby('iso3c')['total_percentage'].mean().to_dict()
+            yr_features = []
+            locs = []
+            z_vals = []
+            custom_rows = []
+
+            for iso3, meta_row in country_meta.iterrows():
+                iso2 = str(meta_row['iso2c']).strip().upper()
+                entry = base_geoms.get(iso3) or base_geoms.get(f"ISO2_{iso2}")
+                pct = float(yr_df.get(iso3, 0.0))
+                scale_k = compute_scale_factor(pct, entry["area"])
+                cx, cy = entry["centroid"]
+                scaled_geom = _scale_geojson_geometry(entry["geometry"], cx, cy, scale_k)
+
+                yr_features.append({
+                    "type": "Feature",
+                    "id": iso3,
+                    "geometry": scaled_geom,
+                    "properties": {"id": iso3}
+                })
+                locs.append(iso3)
+                z_vals.append(np.log10(1.0 + max(pct, 0.0) * 10.0))
+                custom_rows.append([meta_row['country'], iso2, str(yr), pct, meta_row['region'], scale_k])
+
+            yr_geojson = {"type": "FeatureCollection", "features": yr_features}
+            trace = go.Choropleth(
+                geojson=yr_geojson,
+                locations=locs,
+                featureidkey="id",
+                z=z_vals,
+                colorscale=GEOPOLITICAL_CS_COLORSCALE,
+                zmin=0,
+                zmax=max_color_val,
+                marker_line_color="rgba(15, 23, 42, 0.75)",
+                marker_line_width=0.85,
+                customdata=custom_rows,
+                hovertemplate=(
+                    "<b>%{customdata[0]}</b> (%{customdata[1]})<br>"
+                    "Year: <b>%{customdata[2]}</b><br>"
+                    "CS Share: <b>%{customdata[3]:.3f}%</b><br>"
+                    "Cartogram Scale: <b>%{customdata[5]:.2f}×</b><br>"
+                    "Region: %{customdata[4]}<extra></extra>"
+                ),
+                colorbar=dict(
+                    title=dict(text="CS Share", side="right", font=dict(size=10)),
+                    thickness=8,
+                    len=0.68,
+                    x=0.99,
+                    xpad=2,
+                    outlinewidth=0,
+                    tickfont=dict(size=9),
+                    tickvals=tick_vals_scaled,
+                    ticktext=[f"{v}%" for v in tick_vals_real]
+                )
+            )
+            if first_trace is None:
+                first_trace = trace
+
+            frames.append(go.Frame(data=[trace], name=str(yr)))
+            slider_steps.append(dict(
+                method="animate",
+                args=[[str(yr)], dict(mode="immediate", frame=dict(duration=380, redraw=True), transition=dict(duration=200))],
+                label=str(yr)
+            ))
+
+        fig = go.Figure(data=[first_trace] if first_trace else [], frames=frames)
+        fig.update_layout(
+            title={'text': f"<b>{main_title}</b>", 'x': 0.5, 'xanchor': 'center', 'font': {'size': 13}},
+            geo=dict(
+                showframe=False,
+                showcoastlines=True,
+                coastlinecolor="rgba(148, 163, 184, 0.35)",
+                showcountries=True,
+                countrycolor="rgba(203, 213, 225, 0.35)",
+                showland=True,
+                landcolor="#f8fafc",
+                lataxis_range=[-55, 85],
+                projection_type='robinson',
+                projection_scale=1.08
+            ),
+            updatemenus=[dict(
+                type="buttons",
+                showactive=False,
+                x=0.02, y=0.05,
+                pad=dict(r=10, t=12),
+                buttons=[
+                    dict(
+                        label="▶",
+                        method="animate",
+                        args=[None, dict(frame=dict(duration=380, redraw=True), fromcurrent=True, transition=dict(duration=200))]
+                    ),
+                    dict(
+                        label="⏸",
+                        method="animate",
+                        args=[[None], dict(frame=dict(duration=0, redraw=False), mode="immediate", transition=dict(duration=0))]
+                    )
+                ]
+            )],
+            sliders=[dict(
+                active=0,
+                currentvalue=dict(prefix="Year: ", font=dict(size=14, color="#1e293b"), visible=True, xanchor="left"),
+                pad=dict(t=5, b=5),
+                len=0.85,
+                x=0.12,
+                steps=slider_steps
+            )],
+            template='plotly_white',
+            height=560,
+            margin=dict(l=0, r=10, t=35, b=0)
+        )
+        return fig

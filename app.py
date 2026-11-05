@@ -10,6 +10,7 @@ from utils.functions import (
     create_trends_plot,
     create_contribution_choropleth,
     create_contribution_map_plot,
+    create_cartogram_plot,  # <-- ADD THIS IMPORT
     create_summary_dataframe,
     create_article_plot,
     create_top_trends_plot,
@@ -173,12 +174,14 @@ def create_app():
                             ),
                             ui.input_radio_buttons(
                                 "snapshot_mode",
-                                "🗺️ Choropleth Mode:",
+                                "🗺️ Map & Cartogram Mode:",
                                 choices={
-                                    "static": "Period Average",
-                                    "animated": "Yearly Evolution"
+                                    "static": "🗺️ Standard Choropleth (Avg)",
+                                    "animated": "🎬 Animated Choropleth (Yearly)",
+                                    "cartogram_static": "🧩 Deformed Cartogram (Avg)",
+                                    "cartogram_anim": "🚀 Animated Cartogram (1996–2022)"
                                 },
-                                selected="animated",
+                                selected="cartogram_static",
                                 inline=True
                             ),
                             class_="snapshot-controls mb-2 pb-2 border-bottom"
@@ -209,6 +212,7 @@ def create_app():
                     "🗺️ Interactive Explorer",
 
                     # Top Filter Bar
+# Top Filter Bar
                     ui.panel_well(
                         ui.row(
                             ui.column(
@@ -221,7 +225,8 @@ def create_app():
                             ui.column(
                                 5,
                                 ui.input_radio_buttons(
-                                    "chemical_category", "🧪 Chemical Subspace:",
+                                    "chemical_category",
+                                    "🧪 Chemical Subspace:",
                                     choices={
                                         "All": "All Substances (Total CS)",
                                         "Organic": "Organic",
@@ -240,11 +245,11 @@ def create_app():
                                     value=[initial_data['min_year'], initial_data['max_year']],
                                     step=1, sep="",
                                     animate=ui.AnimationOptions(
-                                    interval=700,    # Milisegundos entre cada año (700 ms da buena fluidez)
-                                    loop=True,       # Vuelve al inicio al terminar 2022
-                                    play_button=ui.tags.span("▶ Iniciar Animación", class_="btn btn-sm btn-outline-success"),
-                                    pause_button=ui.tags.span("⏸ Pausar", class_="btn btn-sm btn-outline-warning")
-    )
+                                        interval=700,
+                                        loop=True,
+                                        play_button=ui.tags.span("▶ Iniciar Animación", class_="btn btn-sm btn-outline-success"),
+                                        pause_button=ui.tags.span("⏸ Pausar", class_="btn btn-sm btn-outline-warning")
+                                    )
                                 )
                             )
                         ),
@@ -276,9 +281,10 @@ def create_app():
                                         choices={
                                             "bubbles": "🟣 Proportional Bubbles + Color Intensity (Superzip Style)",
                                             "flags": "🏳️ Circular National Flag Badges",
-                                            "polygons": "🗺️ Shaded Country Boundaries (GeoJSON)"
+                                            "polygons": "🗺️ Shaded Country Boundaries (GeoJSON)",
+                                            "cartogram": "🧩 Deformed Cartogram Boundaries (Interactive)"
                                         },
-                                        selected="bubbles"
+                                        selected="cartogram"
                                     ),
                                     ui.hr(style="margin: 10px 0;"),
                                     ui.input_selectize(
@@ -655,17 +661,36 @@ def create_app():
                 if choropleth_data.empty:
                     return figure_to_html(create_empty_plot("No data for global map with current selections"))
 
-                if input.snapshot_mode() == "static":
-                    y_start, y_end = input.years()
-                    chem_cat = input.chemical_category()
+                mode = input.snapshot_mode()
+                y_start, y_end = input.years()
+                chem_cat = input.chemical_category()
+
+                if mode == "static":
                     return figure_to_html(
                         create_contribution_map_plot(
                             choropleth_data,
-                            fill_label="Avg Share (%)",
+                            fill_label="Avg Share",
                             main_title=f"Average CS Contribution ({y_start}–{y_end}) — {chem_cat}"
                         )
                     )
-                return figure_to_html(create_contribution_choropleth(choropleth_data))
+                elif mode == "cartogram_static":
+                    return figure_to_html(
+                        create_cartogram_plot(
+                            choropleth_data,
+                            main_title=f"Area-Deformed Cartogram ({y_start}–{y_end}) — {chem_cat}",
+                            animated=False
+                        )
+                    )
+                elif mode == "cartogram_anim":
+                    return figure_to_html(
+                        create_cartogram_plot(
+                            choropleth_data,
+                            main_title=f"Animated Deforming Cartogram ({y_start}–{y_end}) — {chem_cat}",
+                            animated=True
+                        )
+                    )
+                else:
+                    return figure_to_html(create_contribution_choropleth(choropleth_data))
             except Exception as e:
                 return figure_to_html(create_empty_plot(f"Error creating map: {str(e)}"))
 
