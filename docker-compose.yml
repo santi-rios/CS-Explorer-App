@@ -4,7 +4,7 @@ services:
     container_name: shiny-python-app
     restart: unless-stopped
     expose:
-      - "8888"
+      - "8000"
     networks:
       - shiny-net
 
@@ -23,4 +23,3 @@ networks:
     driver: bridge  
 
 # docker compose up -d
-# sleep 5 && docker logs shiny-tunnel 2>&1 | grep -o 'https://[-a-z0-9.]*\.trycloudflare\.com'
