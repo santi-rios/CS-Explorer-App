@@ -10,13 +10,14 @@ services:
 
   cloudflared:
     image: cloudflare/cloudflared:latest
-    container_name: shiny-tunnel
+    container_name: cloudflared-tunnel
     restart: unless-stopped
-    command: tunnel --no-autoupdate --url http://shiny-app:8000
+    # This is the exact command Cloudflare gave you, reading the token from .env
+    command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN}
     depends_on:
-      - shiny-app
+      - shiny-chemical
     networks:
-      - shiny-net
+      - app-net
 
 networks:
   shiny-net:
