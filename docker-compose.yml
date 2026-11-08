@@ -15,9 +15,9 @@ services:
     # This is the exact command Cloudflare gave you, reading the token from .env
     command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN}
     depends_on:
-      - shiny-chemical
+      - shiny-app
     networks:
-      - app-net
+      - shiny-net
 
 networks:
   shiny-net:
