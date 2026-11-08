@@ -1,7 +1,7 @@
 services:
   shiny-app:
     build: .
-    container_name: shiny-python-app
+    container_name: shiny-chemical
     restart: unless-stopped
     expose:
       - "8000"
