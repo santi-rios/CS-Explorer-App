@@ -1,0 +1,26 @@
+services:
+  shiny-app:
+    build: .
+    container_name: shiny-python-app
+    restart: unless-stopped
+    expose:
+      - "8888"
+    networks:
+      - shiny-net
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: shiny-tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --url http://shiny-app:8000
+    depends_on:
+      - shiny-app
+    networks:
+      - shiny-net
+
+networks:
+  shiny-net:
+    driver: bridge  
+
+# docker compose up -d
+# sleep 5 && docker logs shiny-tunnel 2>&1 | grep -o 'https://[-a-z0-9.]*\.trycloudflare\.com'
