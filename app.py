@@ -1,4 +1,3 @@
-import io
 import pandas as pd
 import plotly.offline as plotly_offline
 from shiny import App, ui, render, reactive
@@ -31,17 +30,23 @@ www_dir = Path(__file__).resolve().parent / "www"
 
 @lru_cache(maxsize=1)
 def load_country_list() -> pd.DataFrame:
-    """Cached country metadata table."""
+    """Cached country metadata table including iso3c for compact selector badges."""
     df = get_raw_dataframe()
-    return (
+    cols = [c for c in ['country', 'iso2c', 'iso3c', 'lat', 'lng', 'cc', 'region'] if c in df.columns]
+    res = (
         df[df['is_collab'] == False]
-        .drop_duplicates(subset=['country', 'iso2c', 'lat', 'lng', 'cc', 'region'])
+        .drop_duplicates(subset=cols)
         .dropna(subset=['country', 'iso2c'])
         .query("country != '' and iso2c != ''")
         .fillna({'region': 'Other'})
         .sort_values('country')
         .reset_index(drop=True)
     )
+    if 'iso3c' not in res.columns:
+        res['iso3c'] = res['iso2c']
+    else:
+        res['iso3c'] = res['iso3c'].fillna(res['iso2c'])
+    return res
 
 
 @lru_cache(maxsize=1)
@@ -58,9 +63,9 @@ def get_default_top10_isos() -> list[str]:
             .index.dropna()
             .tolist()
         )
-        return top10 if top10 else ["CN", "US", "JP", "DE", "IN", "GB", "FR", "RU", "ES", "KR"]
+        return top10 if top10 else ["CN", "US", "JP", "DE", "IN", "GB", "FR", "RU", "ES", "IT"]
     except Exception:
-        return ["CN", "US", "JP", "DE", "IN", "GB", "FR", "RU", "ES", "KR"]
+        return ["CN", "US", "JP", "DE", "IN", "GB", "FR", "RU", "ES", "IT"]
 
 
 @lru_cache(maxsize=256)
@@ -108,8 +113,10 @@ def create_app():
         max_year = int(df_sample['year'].max())
 
         countries_df = load_country_list()
+        # Format label as "🇨🇳 CHN — China" so Selectize can display just "🇨🇳 CHN" in the selected pill
+        # while still letting the user search by full country name ("China") in the dropdown list!
         country_choices = {
-            row['iso2c']: f"{iso_to_flag_emoji(row['iso2c'])} {row['country']} ({row['iso2c']})"
+            row['iso2c']: f"{iso_to_flag_emoji(row['iso2c'])} {str(row['iso3c']).upper()} — {row['country']}"
             for _, row in countries_df.iterrows()
         }
 
@@ -137,7 +144,7 @@ def create_app():
             ui.div(
                 ui.h3(
                     "China's Rise in the Chemical Space & the Decline of US Influence",
-                    style="text-align: center; font-weight: 700; margin-top: 12px; margin-bottom: 6px;"
+                    style="text-align: center; font-weight: 700; margin-top: 10px; margin-bottom: 4px; color: #0f172a;"
                 ),
                 ui.p(
                     "Interactive geopolitical explorer of 15.7 million new chemical substances across 189 countries and territories (1996–2022) — ",
@@ -145,9 +152,9 @@ def create_app():
                         "Bermúdez-Montaña et al. (2025), Quantitative Science Studies",
                         href="https://doi.org/10.1162/QSS.a.471",
                         target="_blank",
-                        style="font-weight: 600;"
+                        class_="article-doi-link"
                     ),
-                    style="text-align: center; color: #555; margin-bottom: 16px;"
+                    style="text-align: center; color: #334155; margin-bottom: 14px;"
                 ),
             ),
 
@@ -157,54 +164,14 @@ def create_app():
                 ui.nav_panel(
                     "🗺️ Interactive Explorer",
 
-                    # 1. UNIFIED TOP GLOBAL CONTROL & DISCOVERY BAR (Shared by Trends, Map, and Collaborations)
+                    # 1. FIRST ELEMENT: COMPACT COUNTRY SELECTION & QUICK PRESETS BAR
                     ui.panel_well(
-                        ui.row(
-                            ui.column(
-                                3,
-                                ui.input_select(
-                                    "region_filter", "🌍 1. Filter by Region:",
-                                    choices=initial_data['regions'], selected="All"
-                                )
-                            ),
-                            ui.column(
-                                5,
-                                ui.input_radio_buttons(
-                                    "chemical_category",
-                                    "🧪 2. Select Chemical Subspace:",
-                                    choices={
-                                        "All": "All Substances (Total CS)",
-                                        "Organic": "Organic",
-                                        "Organometallic": "Organometallic",
-                                        "Rare-Earths": "Rare-Earths (REE)"
-                                    },
-                                    selected="All",
-                                    inline=True
-                                )
-                            ),
-                            ui.column(
-                                4,
-                                ui.input_slider(
-                                    "years", "📅 3. Year Range:",
-                                    min=initial_data['min_year'], max=initial_data['max_year'],
-                                    value=[initial_data['min_year'], initial_data['max_year']],
-                                    step=1, sep="",
-                                    animate=ui.AnimationOptions(
-                                        interval=700,
-                                        loop=True,
-                                        play_button=ui.tags.span("▶ Play Period", class_="btn btn-sm btn-outline-success"),
-                                        pause_button=ui.tags.span("⏸ Pause", class_="btn btn-sm btn-outline-warning")
-                                    )
-                                )
-                            )
-                        ),
-                        ui.hr(style="margin: 10px 0;"),
                         ui.row(
                             ui.column(
                                 6,
                                 ui.input_selectize(
                                     "country_picker",
-                                    "🔍 4. Search & Select Countries (or click directly on the map below):",
+                                    "🔍 Select Countries (search by name or ISO3, or click on the map below):",
                                     choices=initial_data['country_choices'],
                                     selected=default_top10,
                                     multiple=True,
@@ -216,71 +183,61 @@ def create_app():
                             ui.column(
                                 6,
                                 ui.div(
-                                    ui.tags.label(
-                                        "⚡ Quick Discovery Presets:",
-                                        class_="form-label d-block mb-1",
-                                        style="font-weight: 600; font-size: 0.9rem;"
+                                    ui.div(
+                                        ui.tags.span("⚡ Quick Presets:", style="font-weight: 700; font-size: 0.85rem; color: #1e293b;"),
+                                        ui.tags.span(ui.output_text("selection_info"), class_="text-muted small ms-2"),
+                                        class_="d-flex align-items-center justify-content-between mb-1"
                                     ),
                                     ui.div(
                                         ui.input_action_button(
                                             "preset_top10_current",
-                                            "🏆 Top 10 (Active Filter)",
+                                            "🏆 Top 10",
                                             class_="btn-sm btn-primary me-1 mb-1"
                                         ),
                                         ui.input_action_button(
                                             "preset_decade_90s",
-                                            "🕰️ 1996–2005 Leaders",
+                                            "🕰️ 1996–2005",
                                             class_="btn-sm btn-outline-secondary me-1 mb-1"
                                         ),
                                         ui.input_action_button(
                                             "preset_decade_crossover",
-                                            "⚡ 2006–2014 Crossover",
+                                            "⚡ 2006–2014",
                                             class_="btn-sm btn-outline-secondary me-1 mb-1"
                                         ),
                                         ui.input_action_button(
                                             "preset_decade_modern",
-                                            "🚀 2015–2022 Surge",
+                                            "🚀 2015–2022",
                                             class_="btn-sm btn-outline-secondary me-1 mb-1"
                                         ),
                                         ui.input_action_button(
                                             "preset_biggest_risers",
-                                            "🔥 Top 8 Biggest Risers",
+                                            "🔥 Top 8 Risers",
                                             class_="btn-sm btn-outline-success me-1 mb-1"
                                         ),
                                         ui.input_action_button(
                                             "clear_selection",
-                                            "🗑️ Clear All",
-                                            class_="btn-sm btn-outline-danger mb-1"
+                                            "🗑️ Clear",
+                                            class_="btn-sm btn-outline-danger me-2 mb-1"
                                         ),
-                                        class_="d-flex flex-wrap align-items-center"
-                                    ),
-                                    ui.div(
                                         ui.input_checkbox(
                                             "show_flags_on_trends",
-                                            "🏳️ Show National Flags at End of Trend Lines",
+                                            "🏳️ Flags on Lines",
                                             value=True
                                         ),
-                                        ui.tags.span(
-                                            ui.output_text("selection_info"),
-                                            class_="text-muted small ms-3"
-                                        ),
-                                        class_="d-flex align-items-center mt-1"
+                                        class_="d-flex flex-wrap align-items-center"
                                     )
                                 )
                             )
                         ),
-                        class_="bg-light border rounded p-3 mb-3 shadow-sm"
+                        class_="bg-light border rounded p-2 mb-3 shadow-sm"
                     ),
 
-                    # 2. LIVE KPI SUMMARY STRIP
-                    ui.output_ui("dynamic_explorer_kpis"),
-
-                    # 3. FULL-WIDTH CONTRIBUTION TRENDS CARD + COLLAPSIBLE SIDE-BY-SIDE CHOROPLETH DRAWER
+                    # 2. SECOND ELEMENT: FULL-WIDTH MAIN PLOT + COLLAPSIBLE SIDE-BY-SIDE CHOROPLETH DRAWER
                     ui.card(
                         ui.card_header(
                             ui.div(
                                 ui.div(
-                                    ui.tags.span("📈 Individual Country Contribution Trends", style="font-weight: 600;"),
+                                    ui.tags.span("📈 Individual Country Contribution Trends", style="font-weight: 700; color: #0f172a;"),
                                     ui.tags.small(
                                         "Drag on chart to zoom into any period; double-click to reset.",
                                         class_="text-muted ms-2"
@@ -300,7 +257,7 @@ def create_app():
                                     ui.div(
                                         ui.tags.strong("🌎 Global Choropleth Snapshot"),
                                         ui.tags.small(
-                                            "US-Blue (early dominance) to China-Red (modern surge)",
+                                            "Light Blue (low) to Deep Blue / Crimson Red (dominant)",
                                             class_="d-block text-muted mb-2"
                                         )
                                     ),
@@ -333,12 +290,12 @@ def create_app():
                         class_="dashboard-plot-card mb-3 shadow-sm"
                     ),
 
-                    # 4. 100% FULL-WIDTH INTERACTIVE GEOPOLITICAL MAP (Controls unified in Card Header!)
+                    # 3. THIRD ELEMENT: 100% FULL-WIDTH INTERACTIVE GEOPOLITICAL MAP
                     ui.card(
                         ui.card_header(
                             ui.div(
                                 ui.div(
-                                    ui.tags.span("🌐 Interactive Geopolitical Map & Country Selector", style="font-weight: 600;"),
+                                    ui.tags.span("🌐 Interactive Geopolitical Map & Country Selector", style="font-weight: 700; color: #0f172a;"),
                                     ui.tags.small(
                                         "Click any country on the map to add/remove it (zoom & pan position are preserved).",
                                         class_="text-muted ms-2"
@@ -349,9 +306,9 @@ def create_app():
                                         "map_visual_style",
                                         None,
                                         choices={
-                                            "bubbles": "🟣 Proportional Bubbles (Superzip)",
-                                            "flags": "🏳️ Circular Flag Badges",
-                                            "polygons": "🗺️ Shaded Country Boundaries"
+                                            "polygons": "🗺️ Shaded Country Boundaries",
+                                            "flags": "🏳️ Proportional Flag Badges",
+                                            "bubbles": "🟣 Proportional Bubbles (Superzip)"
                                         },
                                         selected="polygons",
                                         inline=True
@@ -366,12 +323,58 @@ def create_app():
                         class_="border rounded mb-3 shadow-sm"
                     ),
 
-                    # 5. DEDICATED IN-DEPTH EXPLORATION: JOINT COLLABORATIONS & SUMMARY STATISTICS
+                    # 4. FOURTH ELEMENT: FILTERING CONTROLS & LIVE KPI INFORMATION BOXES
+                    ui.panel_well(
+                        ui.row(
+                            ui.column(
+                                3,
+                                ui.input_select(
+                                    "region_filter", "🌍 Filter by Region:",
+                                    choices=initial_data['regions'], selected="All"
+                                )
+                            ),
+                            ui.column(
+                                5,
+                                ui.input_radio_buttons(
+                                    "chemical_category",
+                                    "🧪 Select Chemical Subspace:",
+                                    choices={
+                                        "All": "All Substances (Total CS)",
+                                        "Organic": "Organic",
+                                        "Organometallic": "Organometallic",
+                                        "Rare-Earths": "Rare-Earths (REE)"
+                                    },
+                                    selected="All",
+                                    inline=True
+                                )
+                            ),
+                            ui.column(
+                                4,
+                                ui.input_slider(
+                                    "years", "📅 Year Range:",
+                                    min=initial_data['min_year'], max=initial_data['max_year'],
+                                    value=[initial_data['min_year'], initial_data['max_year']],
+                                    step=1, sep="",
+                                    animate=ui.AnimationOptions(
+                                        interval=700,
+                                        loop=True,
+                                        play_button=ui.tags.span("▶ Play Period", class_="btn btn-sm btn-success fw-bold"),
+                                        pause_button=ui.tags.span("⏸ Pause", class_="btn btn-sm btn-warning fw-bold")
+                                    )
+                                )
+                            )
+                        ),
+                        class_="bg-light border rounded p-3 mb-3 shadow-sm"
+                    ),
+
+                    ui.output_ui("dynamic_explorer_kpis"),
+
+                    # 5. FIFTH ELEMENT: IN-DEPTH EXPLORATION (COLLABORATIONS & SUMMARY TABLE)
                     ui.card(
                         ui.card_header(
                             ui.div(
                                 ui.div(
-                                    ui.tags.span("🔬 In-Depth Exploration: Joint Collaborations & Summary Statistics", style="font-weight: 600;"),
+                                    ui.tags.span("🔬 In-Depth Exploration: Joint Collaborations & Summary Statistics", style="font-weight: 700; color: #0f172a;"),
                                     ui.tags.small(
                                         "Explore bilateral & multilateral partnerships among your selected countries or export the summary table.",
                                         class_="text-muted ms-2"
@@ -391,7 +394,7 @@ def create_app():
                                 ui.div(
                                     ui.p(
                                         "Shows all bilateral, trilateral, 4-country, and 5-country+ research networks that include the countries currently selected above. "
-                                        "Tip: Select 2 or 3 specific countries (e.g., China + US, or Germany + US) to inspect all partnerships linking them.",
+                                        "Tip: Click a Focus button below to inspect specific bilateral/trilateral partnerships.",
                                         class_="text-muted small mb-2"
                                     ),
                                     ui.div(
@@ -486,7 +489,7 @@ def create_app():
                         ui.output_ui("article_top_collabs_plot"),
                         ui.p(
                             "Legend is sorted by average contribution (shown in parentheses) between 1996 and 2022.",
-                            style="font-size: 0.9em; color: #666; text-align: center; margin-top: 8px;"
+                            style="font-size: 0.9em; color: #475569; text-align: center; margin-top: 8px;"
                         ),
                         class_="border rounded p-3 bg-light"
                     )
@@ -536,25 +539,70 @@ def create_app():
                 Shiny.addCustomMessageHandler('reset_saved_map_view', function(msg) {
                     window._cs_saved_map_view = null;
                 });
+
+                // Condense selected country pills in #country_picker to show just "🇨🇳 CHN"
+                // while keeping the full "🇨🇳 CHN — China" text searchable in the dropdown!
+                document.addEventListener('DOMContentLoaded', function() {
+                    var checkSelectize = setInterval(function() {
+                        var el = document.getElementById('country_picker');
+                        if (el && el.selectize) {
+                            clearInterval(checkSelectize);
+                            var sel = el.selectize;
+                            sel.settings.render.item = function(item, escape) {
+                                var shortLabel = String(item.text).split(' — ')[0];
+                                return '<div class="item" title="' + escape(item.text) + '">' + escape(shortLabel) + '</div>';
+                            };
+                            // Refresh already-rendered initial items
+                            var currentVals = sel.getValue();
+                            sel.setValue(currentVals, true);
+                        }
+                    }, 80);
+                });
             """),
             ui.tags.style("""
-                /* 1. Darken standard links (e.g., Article DOI link at the top & footer) */
-                :root {
-                    --bs-link-color: #0b4f6c;
-                    --bs-link-hover-color: #062c3d;
+                /* 1. HIGH-CONTRAST TOP NAVBAR (White text on dark navy background) */
+                .navbar {
+                    background-color: #1e293b !important;
+                    box-shadow: 0 2px 6px rgba(0,0,0,0.15);
                 }
-                a {
-                    color: #0b4f6c !important;
-                    text-decoration-thickness: 1.5px;
+                .navbar .navbar-brand {
+                    color: #ffffff !important;
+                    font-weight: 700 !important;
                 }
-                a:hover {
-                    color: #052636 !important;
+                .navbar .nav-link {
+                    color: rgba(255, 255, 255, 0.85) !important;
+                    font-weight: 600 !important;
+                }
+                .navbar .nav-link:hover {
+                    color: #ffffff !important;
+                    background-color: rgba(255, 255, 255, 0.1) !important;
+                    border-radius: 5px;
+                }
+                .navbar .nav-link.active {
+                    color: #ffffff !important;
+                    background-color: rgba(56, 189, 248, 0.22) !important;
+                    border-bottom: 3px solid #38bdf8 !important;
+                    border-radius: 5px 5px 0 0;
                 }
 
-                /* 2. Darken Tab Names (Interactive Explorer, Key Article Figures, Top 10 Trends) */
+                /* 2. High-contrast links inside the page body (without affecting navbar or buttons) */
+                a.article-doi-link,
+                .card-body a:not(.btn):not(.nav-link),
+                footer a {
+                    color: #0b4f6c !important;
+                    font-weight: 600;
+                    text-decoration-thickness: 1.5px;
+                }
+                a.article-doi-link:hover,
+                .card-body a:not(.btn):not(.nav-link):hover,
+                footer a:hover {
+                    color: #032b3d !important;
+                }
+
+                /* 3. High-contrast Tab & Pill Headers */
                 .nav-tabs .nav-link,
                 .nav-pills .nav-link {
-                    color: #334155 !important;       /* Dark slate for inactive tabs */
+                    color: #334155 !important;
                     font-weight: 600 !important;
                 }
                 .nav-tabs .nav-link:hover,
@@ -563,17 +611,54 @@ def create_app():
                     background-color: #e2e8f0 !important;
                 }
                 .nav-tabs .nav-link.active {
-                    color: #0f172a !important;       /* Deep charcoal-navy for active tab */
+                    color: #0f172a !important;
                     font-weight: 700 !important;
-                    border-bottom: 3px solid #0b4f6c !important;
+                    border-bottom: 3px solid #0284c7 !important;
                     background-color: #ffffff !important;
                 }
                 .nav-pills .nav-link.active {
                     color: #ffffff !important;
-                    background-color: #0b4f6c !important;
+                    background-color: #0284c7 !important;
                 }
 
-                /* 3. Make Quick Discovery Preset & Play Period buttons high-contrast */
+                /* 4. Compact, Clean ISO3 Pills inside the Country Search Box */
+                #country_picker + .selectize-control.multi .selectize-input {
+                    padding: 4px 8px !important;
+                    min-height: 38px !important;
+                    background-color: #ffffff !important;
+                    border: 1px solid #94a3b8 !important;
+                }
+                #country_picker + .selectize-control.multi .selectize-input > div.item {
+                    background: #e0f2fe !important;
+                    color: #0f172a !important;
+                    border: 1px solid #7dd3fc !important;
+                    border-radius: 5px !important;
+                    padding: 1px 6px !important;
+                    margin: 2px 3px 2px 0 !important;
+                    font-size: 0.80rem !important;
+                    font-weight: 700 !important;
+                }
+                #country_picker + .selectize-control.multi .selectize-input > div.item .remove {
+                    border-left: 1px solid #7dd3fc !important;
+                    color: #0369a1 !important;
+                    padding-left: 4px !important;
+                }
+
+                /* 5. High-contrast Buttons & Slider Animation Play Button */
+                .slider-animate-button {
+                    opacity: 1 !important;
+                    text-decoration: none !important;
+                }
+                .btn-outline-primary {
+                    color: #0369a1 !important;
+                    border-color: #0284c7 !important;
+                    background-color: #ffffff !important;
+                    font-weight: 600 !important;
+                }
+                .btn-outline-primary:hover {
+                    color: #ffffff !important;
+                    background-color: #0284c7 !important;
+                }
                 .btn-outline-secondary {
                     color: #1e293b !important;
                     border-color: #64748b !important;
@@ -583,7 +668,6 @@ def create_app():
                 .btn-outline-secondary:hover {
                     color: #ffffff !important;
                     background-color: #334155 !important;
-                    border-color: #334155 !important;
                 }
                 .btn-outline-success {
                     color: #065f46 !important;
@@ -605,8 +689,6 @@ def create_app():
                     color: #ffffff !important;
                     background-color: #dc2626 !important;
                 }
-
-                /* 4. Darken muted helper text and subtitles so they are easy to read */
                 .text-muted, small.text-muted {
                     color: #475569 !important;
                 }
@@ -621,13 +703,12 @@ def create_app():
                 "China's rise in the chemical space and the decline of US influence. ",
                 ui.tags.i("Quantitative Science Studies (MIT Press): "),
                 ui.tags.a("https://doi.org/10.1162/QSS.a.471", href="https://doi.org/10.1162/QSS.a.471", target="_blank"),
-                style="text-align: center; padding: 10px; font-size: 0.9em; color: #777;"
+                style="text-align: center; padding: 10px; font-size: 0.9em; color: #475569;"
             )
         )
     )
 
     def server(input, output, session):
-        # Start with the Top 10 overall countries pre-selected!
         selected_countries = reactive.Value(default_top10)
 
         @reactive.Calc
@@ -815,13 +896,12 @@ def create_app():
         @reactive.Effect
         @reactive.event(input.region_filter, ignore_init=True)
         async def _handle_region_change():
-            # Reset saved Leaflet zoom so the map flies cleanly to the new region
             await session.send_custom_message("reset_saved_map_view", {})
             all_countries = country_list()
             current_region = input.region_filter()
             region_df = all_countries[all_countries['region'] == current_region] if current_region != "All" else all_countries
             new_choices = {
-                row['iso2c']: f"{iso_to_flag_emoji(row['iso2c'])} {row['country']} ({row['iso2c']})"
+                row['iso2c']: f"{iso_to_flag_emoji(row['iso2c'])} {str(row['iso3c']).upper()} — {row['country']}"
                 for _, row in region_df.iterrows()
             }
             valid_selected = [iso for iso in selected_countries.get() if iso in new_choices]
@@ -873,7 +953,7 @@ def create_app():
                     style="background: #4f46e5; color: white; padding: 10px 16px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.08);"
                 ),
                 width=1/3,
-                style="margin-bottom: 12px;"
+                style="margin-bottom: 14px;"
             )
 
         @output
@@ -886,7 +966,7 @@ def create_app():
                 all_countries[all_countries['region'] == current_region]
                 if current_region != "All" else all_countries
             )
-            return f"Showing {count} of {available_count} countries in {current_region}"
+            return f"Showing {count} of {available_count} countries ({current_region})"
 
         @output
         @render.ui
@@ -935,7 +1015,7 @@ def create_app():
             if data.empty:
                 return figure_to_html(create_empty_plot(
                     f"No joint collaborations found linking all {len(selected)} selected countries ({', '.join(selected)}).\n"
-                    "Tip: Select 2 or 3 countries (e.g., CN + US) to see all bilateral & multilateral networks containing them."
+                    "Tip: Click one of the Focus buttons above (e.g., China + US) to see all bilateral & multilateral networks linking them."
                 ))
 
             return figure_to_html(create_trends_plot(
@@ -1020,7 +1100,7 @@ def create_app():
                     ui.output_ui("animated_bubble_plot"),
                     ui.p(
                         "Press ▶ Play below the chart to watch China's surge from #6 in 1996 to #1 from 2013 onward.",
-                        style="text-align: center; color: #666; font-size: 0.9em;"
+                        style="text-align: center; color: #475569; font-size: 0.9em;"
                     )
                 )
 

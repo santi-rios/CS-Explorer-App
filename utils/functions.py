@@ -1,6 +1,6 @@
 """
 Helper functions for the Chemical Space Explorer Python Shiny App
-Optimized with Local Flags, Collision-Free End-of-Line Flag Badges, and Persistent Map Zoom
+Optimized with Local Flags, Value-Proportional Flag Badges, High-Contrast Palette, and Persistent Map Zoom
 """
 
 import base64
@@ -40,10 +40,8 @@ def get_flag_url(iso2c: str, for_plotly: bool = False) -> str:
     local_file = WWW_FLAGS_DIR / f"{iso}.png"
     if local_file.exists():
         if for_plotly:
-            # Base64 data URI guarantees instant rendering inside Plotly's SVG layout.images
             b64 = base64.b64encode(local_file.read_bytes()).decode("ascii")
             return f"data:image/png;base64,{b64}"
-        # Relative URL served directly by Shiny's static_assets=www_dir
         return f"flags/{iso}.png"
     return f"{FLAG_CDN}/{iso}.png"
 
@@ -150,9 +148,10 @@ def get_display_data(
             return pd.DataFrame()
 
         if country_list is not None:
-            country_meta = country_list[['iso2c', 'country', 'cc', 'region']].drop_duplicates(subset=['iso2c'])
+            meta_cols = [c for c in ['iso2c', 'iso3c', 'country', 'cc', 'region'] if c in country_list.columns]
+            country_meta = country_list[meta_cols].drop_duplicates(subset=['iso2c'])
             result = result.merge(country_meta, on='iso2c', how='left', suffixes=('_orig', '_meta'))
-            for col in ['country', 'cc', 'region']:
+            for col in ['country', 'cc', 'region', 'iso3c']:
                 meta_col = f'{col}_meta'
                 if meta_col in result.columns:
                     result[col] = result[meta_col].fillna(result.get(f'{col}_orig', ''))
@@ -234,7 +233,6 @@ def add_flags_to_trend_plot(fig: go.Figure, data: pd.DataFrame, value_col: str =
     year_span = max(last_year - min_year, 5)
     y_max = float(data[value_col].max()) if not data[value_col].dropna().empty else 10.0
 
-    # Find the last available data point for each selected country
     latest_points = (
         data.sort_values('year')
         .dropna(subset=['iso2c', value_col])
@@ -248,16 +246,13 @@ def add_flags_to_trend_plot(fig: go.Figure, data: pd.DataFrame, value_col: str =
     if n_flags == 0:
         return fig
 
-    # Adaptive flag size: larger when <= 6 countries, slightly more compact when 10+ countries are shown
     scale_factor = 1.0 if n_flags <= 6 else (0.85 if n_flags <= 12 else 0.72)
     sizex = max(1.15, year_span * 0.058 * scale_factor)
     sizey = max(0.9, y_max * 0.085 * scale_factor)
 
-    # Stagger into 2 horizontal columns if more than 6 countries are selected to prevent crowding
     use_two_cols = n_flags > 6
     min_vertical_gap = sizey * (0.58 if use_two_cols else 0.88)
 
-    # Compute de-overlapped vertical positions
     adjusted_y = []
     for _, row in latest_points.iterrows():
         raw_y = float(row[value_col])
@@ -320,7 +315,6 @@ def create_trends_plot(
         distinct_fallback = px.colors.qualitative.Bold + px.colors.qualitative.D3 + px.colors.qualitative.Dark24
         used_colors = set()
 
-        # Sort countries by average share descending so top contributors appear first in the legend
         country_order = (
             data_sorted.groupby('plot_group')[value_column]
             .mean()
@@ -564,7 +558,7 @@ def create_trends_plot(
         )
 
     fig.update_layout(
-        height=560 if mode == "compare_individuals" else 620,
+        height=540 if mode == "compare_individuals" else 600,
         dragmode='zoom',
         yaxis=dict(
             ticksuffix='%',
@@ -608,7 +602,7 @@ def create_trends_plot(
             l=65,
             r=35,
             b=110,
-            t=80 if (mode == "find_collaborations" and updatemenus) else 35
+            t=80 if (mode == "find_collaborations" and updatemenus) else 30
         )
     )
     return fig
@@ -618,13 +612,13 @@ def create_enhanced_folium_map(
     country_list: pd.DataFrame,
     selected_countries: List[str],
     contributions_df: Optional[pd.DataFrame] = None,
-    map_style: str = "bubbles"
+    map_style: str = "polygons"
 ) -> folium.Map:
     """
     Unified full-width Folium map supporting 3 visual modes with persistent zoom/pan memory:
     - 'bubbles': Superzip-style proportional bubbles where BOTH radius and color intensity encode CS share (%)
-    - 'flags': Circular national flag badges on the map (using local ./www/flags/ PNGs)
-    - 'polygons': Shaded GeoJSON country boundaries colored by CS contribution intensity
+    - 'flags': Value-proportional circular national flag badges (major contributors stand out clearly)
+    - 'polygons': Shaded GeoJSON country boundaries with light pastel low values and bold high values
     """
     if not country_list.empty:
         center_lat = float(country_list['lat'].mean())
@@ -647,39 +641,7 @@ def create_enhanced_folium_map(
         control_scale=True
     )
 
-    # folium.TileLayer(
-    #     tiles="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
-    #     attr='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-    #     name="Light Map (Positron)",
-    #     max_zoom=19,
-    #     control=True
-    # ).add_to(m)
-
-    # folium.TileLayer(
-    #     tiles="https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-    #     attr='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-    #     name="OpenStreetMap",
-    #     max_zoom=19,
-    #     control=True,
-    #     show=True
-    # ).add_to(m)
-    
-    # folium.TileLayer(
-    #     tiles="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
-    #     attr='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://opentopomap.org/">OpenTopoMap</a>',
-    #     name="Topographic Map (OpenTopoMap)",
-    #     max_zoom=17,
-    #     control=True
-    # ).add_to(m)
-    
-    # folium.TileLayer(
-    #     tiles="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
-    #     attr='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://opentopomap.org/">OpenTopoMap</a>',
-    #     name="Topographic Map (OpenTopoMap)",
-    #     max_zoom=17,
-    #     control=True
-    # ).add_to(m)
-    
+    # Preserved Humanitarian Map (HOT) tile layer as primary base map
     folium.TileLayer(
         tiles="https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png",
         attr='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://hot.openstreetmap.org/">HOT</a>',
@@ -688,17 +650,15 @@ def create_enhanced_folium_map(
         control=True,
         show=True
     ).add_to(m)
-    
-    # folium.TileLayer(
-    #     tiles="https://{s}.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png",
-    #     attr='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://osmfr.org/">OSM France</a>',
-    #     name="French Map (OSM France)",
-    #     max_zoom=20,
-    #     control=True
-    # ).add_to(m)
-    
 
-
+    folium.TileLayer(
+        tiles="https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+        attr='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        name="Standard OpenStreetMap",
+        max_zoom=19,
+        control=True,
+        show=False
+    ).add_to(m)
 
     avg_shares = {}
     max_shares = {}
@@ -710,16 +670,23 @@ def create_enhanced_folium_map(
             max_shares = grouped.max().to_dict()
 
     max_avg_share = max(list(avg_shares.values()) + [1.0])
+
+    # High-contrast colormap: Very Light Ice-Blue for low values -> Royal Blue -> Amber -> Deep Crimson Red
     colormap = cm.LinearColormap(
-        colors=['#3b82f6', '#1d4ed8', '#001a4d', '#ea580c', '#991b1b'],
+        colors=['#f0f9ff', '#bae6fd', '#60a5fa', '#2563eb', '#f59e0b', '#dc2626', '#991b1b'],
         vmin=0,
         vmax=np.sqrt(max_avg_share),
-        caption="Avg Chemical Space Share (%) [√-scaled intensity]"
+        caption="Avg Chemical Space Share (%) [√-scaled: Light = Low, Red = High]"
     )
 
     iso_to_geometry = get_world_geometries() if map_style == "polygons" else {}
 
-    for _, row in country_list.iterrows():
+    # Sort rows so smaller contributors render first and larger/selected contributors sit on top!
+    country_rows = country_list.copy()
+    country_rows['_avg_sort'] = country_rows['iso2c'].str.strip().str.upper().map(lambda x: avg_shares.get(x, 0.0))
+    country_rows = country_rows.sort_values('_avg_sort', ascending=True)
+
+    for _, row in country_rows.iterrows():
         iso = str(row['iso2c']).strip().upper()
         name = str(row['country'])
         lat, lng = float(row['lat']), float(row['lng'])
@@ -766,44 +733,67 @@ def create_enhanced_folium_map(
         )
 
         if map_style == "flags":
-            size_px = 34 if is_selected else int(np.clip(20 + np.sqrt(avg_val) * 3.2, 20, 38))
-            border_css = "3px solid #e74c3c" if is_selected else "2px solid #ffffff"
-            shadow_css = "0 0 10px rgba(231, 76, 60, 0.9)" if is_selected else "0 2px 5px rgba(0,0,0,0.35)"
+            # Value-Proportional Circular Flag Badges:
+            # Tiny unselected contributors (< 0.15%) render as subtle 6px pins so they don't clutter Europe/Africa,
+            # while contributors >= 0.15% (or selected countries) scale proportionally from 12px up to 54px!
+            if avg_val < 0.15 and not is_selected:
+                folium.CircleMarker(
+                    location=[lat, lng],
+                    radius=3.5,
+                    color="#64748b",
+                    weight=1,
+                    fill=True,
+                    fill_color="#bae6fd",
+                    fill_opacity=0.55,
+                    tooltip=folium.Tooltip(tooltip_html, sticky=True),
+                    popup=folium.Popup(popup_html, max_width=240)
+                ).add_to(m)
+            else:
+                size_px = int(np.clip(11 + np.sqrt(max(avg_val, 0.15)) * 7.2, 12, 54))
+                if is_selected and size_px < 22:
+                    size_px = 22
+                border_css = "3px solid #dc2626" if is_selected else "2px solid #ffffff"
+                shadow_css = (
+                    "0 0 10px rgba(220, 38, 38, 0.9)" if is_selected
+                    else "0 2px 6px rgba(0,0,0,0.4)"
+                )
+                z_boost = 1000 if is_selected else int(avg_val * 20)
 
-            badge_html = f"""
-            <div style="
-                width: {size_px}px;
-                height: {size_px}px;
-                border-radius: 50%;
-                background-image: url('{flag_url}');
-                background-size: cover;
-                background-position: center;
-                border: {border_css};
-                box-shadow: {shadow_css};
-            "></div>
-            """
-            folium.Marker(
-                location=[lat, lng],
-                icon=folium.DivIcon(
-                    icon_size=(size_px, size_px),
-                    icon_anchor=(size_px // 2, size_px // 2),
-                    html=badge_html
-                ),
-                tooltip=folium.Tooltip(tooltip_html, sticky=True),
-                popup=folium.Popup(popup_html, max_width=240)
-            ).add_to(m)
+                badge_html = f"""
+                <div style="
+                    width: {size_px}px;
+                    height: {size_px}px;
+                    border-radius: 50%;
+                    background-image: url('{flag_url}');
+                    background-size: cover;
+                    background-position: center;
+                    border: {border_css};
+                    box-shadow: {shadow_css};
+                "></div>
+                """
+                folium.Marker(
+                    location=[lat, lng],
+                    z_index_offset=z_boost,
+                    icon=folium.DivIcon(
+                        icon_size=(size_px, size_px),
+                        icon_anchor=(size_px // 2, size_px // 2),
+                        html=badge_html
+                    ),
+                    tooltip=folium.Tooltip(tooltip_html, sticky=True),
+                    popup=folium.Popup(popup_html, max_width=240)
+                ).add_to(m)
 
         elif map_style == "polygons":
             geometry = iso_to_geometry.get(iso)
-            fill_col = colormap(np.sqrt(max(avg_val, 0.0))) if avg_val > 0 else "#d1d5db"
+            fill_col = colormap(np.sqrt(max(avg_val, 0.0))) if avg_val > 0 else "#f1f5f9"
             if geometry is not None:
                 folium.GeoJson(
                     geometry,
                     style_function=lambda x, fc=fill_col, sel=is_selected: {
                         'fillColor': fc,
-                        'color': '#e74c3c' if sel else '#ffffff',
-                        'weight': 2.5 if sel else 0.8,
-                        'fillOpacity': 0.85 if sel else 0.65
+                        'color': '#dc2626' if sel else '#64748b',
+                        'weight': 2.5 if sel else 0.7,
+                        'fillOpacity': 0.85 if sel else 0.75
                     },
                     tooltip=folium.Tooltip(tooltip_html, sticky=True),
                     popup=folium.Popup(popup_html, max_width=240)
@@ -811,21 +801,25 @@ def create_enhanced_folium_map(
             else:
                 folium.CircleMarker(
                     location=[lat, lng],
-                    radius=8 if is_selected else 5,
-                    color='#e74c3c' if is_selected else '#ffffff',
-                    weight=2,
+                    radius=7 if is_selected else 4,
+                    color='#dc2626' if is_selected else '#64748b',
+                    weight=2 if is_selected else 1,
                     fill=True,
                     fill_color=fill_col,
-                    fill_opacity=0.8,
+                    fill_opacity=0.85,
                     tooltip=folium.Tooltip(tooltip_html, sticky=True),
                     popup=folium.Popup(popup_html, max_width=240)
                 ).add_to(m)
 
         else:
-            radius_px = float(np.clip(6 + np.sqrt(max(avg_val, 0.05)) * 5.2, 6, 36))
+            # Value-Proportional Bubbles ('bubbles' mode)
+            radius_px = (
+                3.5 if (avg_val < 0.10 and not is_selected)
+                else float(np.clip(5.5 + np.sqrt(max(avg_val, 0.05)) * 5.8, 6, 40))
+            )
             fill_col = colormap(np.sqrt(max(avg_val, 0.0)))
-            stroke_col = "#e74c3c" if is_selected else "#1f2937"
-            stroke_weight = 3 if is_selected else 1
+            stroke_col = "#dc2626" if is_selected else "#334155"
+            stroke_weight = 2.5 if is_selected else 1
 
             folium.CircleMarker(
                 location=[lat, lng],
@@ -834,7 +828,7 @@ def create_enhanced_folium_map(
                 weight=stroke_weight,
                 fill=True,
                 fill_color=fill_col,
-                fill_opacity=0.88 if is_selected else 0.72,
+                fill_opacity=0.90 if is_selected else (0.50 if avg_val < 0.10 else 0.80),
                 tooltip=folium.Tooltip(tooltip_html, sticky=True),
                 popup=folium.Popup(popup_html, max_width=240)
             ).add_to(m)
@@ -843,7 +837,7 @@ def create_enhanced_folium_map(
         colormap.add_to(m)
     folium.LayerControl(position="topright", collapsed=True).add_to(m)
 
-    # Inject script to preserve zoom & center across country clicks and animation updates!
+    # Preserve zoom & pan coordinates across country clicks and animation updates
     map_var = m.get_name()
     preserve_view_js = f"""
     <script>
@@ -876,23 +870,24 @@ def create_enhanced_folium_map(
     return m
 
 
-# Calibrated for z = np.log10(1 + percentage * 10), where max_z = log10(1 + 41*10) ≈ 2.615:
+# High-contrast Choropleth Color Scale:
+# Very light ice-blue for low values (<1%) so high values (US Navy Blue / China Crimson Red) stand out!
 GEOPOLITICAL_CS_COLORSCALE = [
-    [0.00, "#cbd5e1"],  # 0.00% - Muted slate for 0% in a given year
-    [0.03, "#93c5fd"],  # ~0.02% - Clear sky blue so small countries are visibly colored!
-    [0.18, "#3b82f6"],  # ~0.20% - Bright blue
-    [0.40, "#2563eb"],  # ~1.0%  - Royal blue
-    [0.65, "#1d4ed8"],  # ~5.0%  - Strong blue
-    [0.78, "#1e40af"],  # ~11.0% - Indigo blue (US 2022 level)
-    [0.88, "#001a4d"],  # ~20.0% - HEAVY US NAVY BLUE (US 1996–2007 dominance!)
-    [0.93, "#ea580c"],  # ~28.0% - Warm orange crossover (2013 transition)
-    [0.97, "#dc2626"],  # ~35.0% - Vibrant China Red
-    [1.00, "#991b1b"],  # ~41.0% - Deep China Crimson Red (China 2022 dominance!)
+    [0.00, "#f8fafc"],  # 0.00% - Very light neutral snow
+    [0.04, "#e0f2fe"],  # ~0.03% - Pale ice blue
+    [0.18, "#bae6fd"],  # ~0.20% - Soft sky blue
+    [0.38, "#60a5fa"],  # ~1.0%  - Medium sky blue
+    [0.62, "#2563eb"],  # ~4.5%  - Vibrant royal blue
+    [0.76, "#1d4ed8"],  # ~10.0% - Strong blue
+    [0.86, "#1e3a8a"],  # ~18–22% - Deep US Navy Blue (US 1996–2007 dominance)
+    [0.92, "#f97316"],  # ~28.0% - Warm orange crossover (2013 transition)
+    [0.96, "#dc2626"],  # ~35.0% - Vibrant China Red
+    [1.00, "#991b1b"],  # ~41.0% - Deep China Crimson Red (China 2022 dominance)
 ]
 
 
 def create_contribution_choropleth(data: pd.DataFrame) -> go.Figure:
-    """Create smooth animated yearly world choropleth map with US-Blue to China-Red log-modulus palette."""
+    """Create smooth animated yearly world choropleth map with high-contrast light-to-dark palette."""
     if data.empty or 'total_percentage' not in data.columns:
         return create_empty_plot("No data available for choropleth")
 
@@ -953,13 +948,13 @@ def create_contribution_choropleth(data: pd.DataFrame) -> go.Figure:
     )
     fig.update_traces(
         hovertemplate=hover_tmpl,
-        marker_line_color="rgba(255,255,255,0.65)",
+        marker_line_color="rgba(100,116,139,0.45)",
         marker_line_width=0.5
     )
     for frame in fig.frames:
         for trace in frame.data:
             trace.hovertemplate = hover_tmpl
-            trace.marker.line.color = "rgba(255,255,255,0.65)"
+            trace.marker.line.color = "rgba(100,116,139,0.45)"
             trace.marker.line.width = 0.5
 
     fig.update_layout(
@@ -978,9 +973,9 @@ def create_contribution_choropleth(data: pd.DataFrame) -> go.Figure:
         geo=dict(
             showframe=False,
             showcoastlines=True,
-            coastlinecolor="rgba(160,160,160,0.6)",
+            coastlinecolor="rgba(148,163,184,0.6)",
             showland=True,
-            landcolor="#e2e8f0",
+            landcolor="#f1f5f9",
             lataxis_range=[-55, 85],
             projection_scale=1.08
         ),
@@ -1018,7 +1013,7 @@ def create_contribution_map_plot(
     fill_label: str = "Avg Share",
     main_title: str = "Average Contribution Over Selected Period"
 ) -> go.Figure:
-    """Static choropleth map with matching US-Blue to China-Red log-modulus palette and slim colorbar."""
+    """Static choropleth map with matching high-contrast light-to-dark palette and slim colorbar."""
     if processed_data_df.empty or 'total_percentage' not in processed_data_df.columns:
         return create_empty_plot("No data for map")
 
@@ -1050,7 +1045,7 @@ def create_contribution_map_plot(
         colorscale=GEOPOLITICAL_CS_COLORSCALE,
         zmin=0,
         zmax=max_color_val,
-        marker_line_color="rgba(255,255,255,0.65)",
+        marker_line_color="rgba(100,116,139,0.45)",
         marker_line_width=0.5,
         hovertemplate=(
             "<b>%{customdata[0]}</b> (%{customdata[1]})<br>"
@@ -1081,9 +1076,9 @@ def create_contribution_map_plot(
         geo=dict(
             showframe=False,
             showcoastlines=True,
-            coastlinecolor="rgba(160,160,160,0.6)",
+            coastlinecolor="rgba(148,163,184,0.6)",
             showland=True,
-            landcolor="#e2e8f0",
+            landcolor="#f1f5f9",
             lataxis_range=[-55, 85],
             projection_type='robinson',
             projection_scale=1.08,
