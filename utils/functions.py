@@ -1,21 +1,22 @@
 """
 Helper functions for the Chemical Space Explorer Python Shiny App
-Optimized for 12 GB RAM Server with Flag Badges, Superzip Bubbles, and Client-Side Animations
+Optimized with Local Flags, Collision-Free End-of-Line Flag Badges, and Persistent Map Zoom
 """
 
-import pandas as pd
-import numpy as np
-import plotly.graph_objects as go
-import plotly.express as px
-from typing import List, Dict, Optional, Tuple
-import geopandas as gpd
+import base64
+import json
+from pathlib import Path
 from functools import lru_cache
+from typing import List, Dict, Optional, Tuple
+
+import numpy as np
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
 import folium
 import branca.colormap as cm
-import json
 
-
-# Public CDN for country flag PNGs (reliable, fast, no local storage required)
+WWW_FLAGS_DIR = Path(__file__).resolve().parent.parent / "www" / "flags"
 FLAG_CDN = "https://flagcdn.com/w80"
 
 
@@ -29,9 +30,21 @@ def iso_to_flag_emoji(iso2c: str) -> str:
     return "".join(chr(127397 + ord(c)) for c in iso)
 
 
-def get_flag_url(iso2c: str) -> str:
-    """Return the URL for a country's flag image given its 2-letter ISO code."""
+@lru_cache(maxsize=256)
+def get_flag_url(iso2c: str, for_plotly: bool = False) -> str:
+    """
+    Return the local flag asset path or base64 data URI if downloaded in ./www/flags/,
+    falling back to FlagCDN only if the local file does not exist.
+    """
     iso = str(iso2c).strip().lower()
+    local_file = WWW_FLAGS_DIR / f"{iso}.png"
+    if local_file.exists():
+        if for_plotly:
+            # Base64 data URI guarantees instant rendering inside Plotly's SVG layout.images
+            b64 = base64.b64encode(local_file.read_bytes()).decode("ascii")
+            return f"data:image/png;base64,{b64}"
+        # Relative URL served directly by Shiny's static_assets=www_dir
+        return f"flags/{iso}.png"
     return f"{FLAG_CDN}/{iso}.png"
 
 
@@ -209,46 +222,83 @@ def create_empty_plot(message: str) -> go.Figure:
 
 
 def add_flags_to_trend_plot(fig: go.Figure, data: pd.DataFrame, value_col: str = "total_percentage") -> go.Figure:
-    """Attach national flag images at the latest year of each country's line trace."""
+    """
+    Attach larger national flag images at the latest year of each country's line trace,
+    using vertical de-overlapping and column staggering when multiple countries cluster together.
+    """
     if data.empty or 'year' not in data.columns or 'iso2c' not in data.columns:
         return fig
 
     last_year = int(data['year'].max())
     min_year = int(data['year'].min())
+    year_span = max(last_year - min_year, 5)
     y_max = float(data[value_col].max()) if not data[value_col].dropna().empty else 10.0
 
+    # Find the last available data point for each selected country
     latest_points = (
-        data[data['year'] == last_year]
+        data.sort_values('year')
         .dropna(subset=['iso2c', value_col])
-        .drop_duplicates(subset=['iso2c'])
+        .groupby('iso2c', as_index=False)
+        .last()
+        .sort_values(value_col, ascending=True)
+        .reset_index(drop=True)
     )
 
-    images_to_add = []
+    n_flags = len(latest_points)
+    if n_flags == 0:
+        return fig
+
+    # Adaptive flag size: larger when <= 6 countries, slightly more compact when 10+ countries are shown
+    scale_factor = 1.0 if n_flags <= 6 else (0.85 if n_flags <= 12 else 0.72)
+    sizex = max(1.15, year_span * 0.058 * scale_factor)
+    sizey = max(0.9, y_max * 0.085 * scale_factor)
+
+    # Stagger into 2 horizontal columns if more than 6 countries are selected to prevent crowding
+    use_two_cols = n_flags > 6
+    min_vertical_gap = sizey * (0.58 if use_two_cols else 0.88)
+
+    # Compute de-overlapped vertical positions
+    adjusted_y = []
     for _, row in latest_points.iterrows():
+        raw_y = float(row[value_col])
+        if not adjusted_y:
+            adjusted_y.append(raw_y)
+        else:
+            prev_y = adjusted_y[-1]
+            if raw_y - prev_y < min_vertical_gap:
+                adjusted_y.append(prev_y + min_vertical_gap)
+            else:
+                adjusted_y.append(raw_y)
+
+    images_to_add = []
+    for idx, (_, row) in enumerate(latest_points.iterrows()):
         iso = str(row['iso2c']).strip().lower()
         if len(iso) != 2:
             continue
-        y_val = float(row[value_col])
+        col_offset = (idx % 2) * (sizex * 0.92) if use_two_cols else 0.0
+        x_pos = float(row['year']) + 0.32 + col_offset
+        y_pos = adjusted_y[idx]
+
         images_to_add.append(
             dict(
-                source=get_flag_url(iso),
+                source=get_flag_url(iso, for_plotly=True),
                 xref="x",
                 yref="y",
-                x=last_year + 0.35,
-                y=y_val,
-                sizex=max(1.0, (last_year - min_year) * 0.045),
-                sizey=max(0.8, y_max * 0.065),
+                x=x_pos,
+                y=y_pos,
+                sizex=sizex,
+                sizey=sizey,
                 xanchor="left",
                 yanchor="middle",
                 layer="above"
             )
         )
 
-    if images_to_add:
-        fig.update_layout(
-            images=images_to_add,
-            xaxis=dict(range=[min_year - 0.5, last_year + 2.2])
-        )
+    right_pad = 3.4 if use_two_cols else 2.5
+    fig.update_layout(
+        images=images_to_add,
+        xaxis=dict(range=[min_year - 0.5, last_year + right_pad])
+    )
     return fig
 
 
@@ -267,7 +317,18 @@ def create_trends_plot(
     data_sorted = data.sort_values(['plot_group', 'year'])
 
     if mode == "compare_individuals":
-        for country_name_str in data_sorted['plot_group'].unique():
+        distinct_fallback = px.colors.qualitative.Bold + px.colors.qualitative.D3 + px.colors.qualitative.Dark24
+        used_colors = set()
+
+        # Sort countries by average share descending so top contributors appear first in the legend
+        country_order = (
+            data_sorted.groupby('plot_group')[value_column]
+            .mean()
+            .sort_values(ascending=False)
+            .index.tolist()
+        )
+
+        for idx, country_name_str in enumerate(country_order):
             country_name = str(country_name_str)
             c_df = data_sorted[data_sorted['plot_group'] == country_name]
             if c_df.empty:
@@ -279,15 +340,21 @@ def create_trends_plot(
             if 'plot_color' in c_df.columns:
                 valid_colors = c_df['plot_color'].dropna()
                 if not valid_colors.empty:
-                    color = valid_colors.iloc[0]
+                    candidate_color = str(valid_colors.iloc[0])
+                    if candidate_color not in ("#3b82f6", "#808080") or candidate_color not in used_colors:
+                        color = candidate_color
+            if not color or color in used_colors:
+                color = distinct_fallback[idx % len(distinct_fallback)]
+            used_colors.add(color)
 
+            avg_val = float(c_df[value_column].mean())
             fig.add_trace(go.Scatter(
                 x=c_df['year'],
                 y=c_df[value_column],
                 mode='lines+markers',
-                name=f"{flag_emoji} {country_name}",
-                line=dict(color=color, width=2.2),
-                marker=dict(symbol='circle', size=7, color=color),
+                name=f"{flag_emoji} {country_name} ({avg_val:.1f}%)",
+                line=dict(color=color, width=2.4),
+                marker=dict(symbol='circle', size=7, color=color, line=dict(width=1, color="white")),
                 showlegend=True,
                 hovertemplate=(
                     f"<b>{flag_emoji} {country_name} ({iso_code})</b><br>"
@@ -300,13 +367,11 @@ def create_trends_plot(
             fig = add_flags_to_trend_plot(fig, data_sorted, value_col=value_column)
 
     elif mode == "find_collaborations":
-        # High-contrast 24-color palette so every line in a tier gets a distinct color!
         distinct_palette = (
             px.colors.qualitative.Bold
             + px.colors.qualitative.D3
             + px.colors.qualitative.Dark24
         )
-        # Keep marker shape tied to collaboration complexity tier
         collab_type_symbols = {
             "Bilateral": "circle",
             "Trilateral": "square",
@@ -314,7 +379,6 @@ def create_trends_plot(
             "5-country+": "triangle-up",
             "Unknown": "cross"
         }
-        # Secondary marker variations so even lines with similar hues have distinct point shapes
         tier_symbol_variants = {
             "Bilateral": ["circle", "circle-open", "disc", "circle-dot"],
             "Trilateral": ["square", "square-open", "square-dot", "square-cross"],
@@ -324,7 +388,6 @@ def create_trends_plot(
         }
         line_dashes = ["solid", "dash", "dot", "dashdot", "longdash"]
 
-        # Sort all collaborations by average contribution (highest first)
         collab_order = (
             data_sorted.groupby('plot_group')[value_column]
             .mean()
@@ -332,7 +395,6 @@ def create_trends_plot(
             .index.tolist()
         )
 
-        # Track how many traces we have seen in each tier to assign distinct colors & ranks per tier
         tier_counters: Dict[str, int] = {}
         trace_tier_ranks: List[int] = []
 
@@ -348,12 +410,10 @@ def create_trends_plot(
                 if not valid_type.empty:
                     collab_type = str(valid_type.iloc[0])
 
-            # Rank of this collaboration WITHIN its specific complexity tier (0 = #1 in that tier)
             tier_rank = tier_counters.get(collab_type, 0)
             tier_counters[collab_type] = tier_rank + 1
             trace_tier_ranks.append(tier_rank)
 
-            # Distinct color, dash, and marker variation per trace within the tier
             trace_color = distinct_palette[tier_rank % len(distinct_palette)]
             dash_style = "solid" if tier_rank < 6 else line_dashes[(tier_rank // 6) % len(line_dashes)]
             sym_list = tier_symbol_variants.get(collab_type, [collab_type_symbols.get(collab_type, "circle")])
@@ -376,13 +436,11 @@ def create_trends_plot(
             avg_share = float(c_df[value_column].mean())
             peak_share = float(c_df[value_column].max())
 
-            # Emphasize the top 8 in each tier; make minor tail traces thinner & slightly translucent
             is_top_tier_trace = tier_rank < 8
             line_width = 2.6 if tier_rank < 3 else (1.9 if is_top_tier_trace else 1.1)
             marker_size = 8 if tier_rank < 3 else (6.5 if is_top_tier_trace else 5)
             trace_opacity = 0.95 if is_top_tier_trace else 0.55
 
-            # Add direct end-of-line text label on the final point for the top 3 in each tier
             text_labels = [""] * len(c_df)
             if tier_rank < 3 and len(c_df) > 0:
                 text_labels[-1] = f"  {short_iso_label}"
@@ -397,7 +455,6 @@ def create_trends_plot(
                 textposition="middle right",
                 textfont=dict(size=10, color=trace_color),
                 opacity=trace_opacity,
-                # In the default "All Types" view, show the top 12 overall in the legend
                 showlegend=(overall_rank < 12),
                 line=dict(color=trace_color, width=line_width, dash=dash_style),
                 marker=dict(
@@ -417,7 +474,6 @@ def create_trends_plot(
                 )
             ))
 
-    # Historical context annotations using yref="paper" so they never block y-axis rescaling
     if fig.data:
         for event_year, label in [(2008, "Financial Crisis (2008)"), (2020, "COVID-19 (2020)")]:
             fig.add_vline(x=event_year, line_dash="dot", line_color="rgba(120, 120, 120, 0.55)")
@@ -434,7 +490,6 @@ def create_trends_plot(
                 xshift=-10
             )
 
-    # Dynamic filter buttons that update visibility, rescale Y-axis, AND update the Legend for that tier!
     updatemenus = []
     if mode == "find_collaborations":
         type_order = ["Bilateral", "Trilateral", "4-country", "5-country+"]
@@ -450,7 +505,6 @@ def create_trends_plot(
             all_max = float(data_sorted[value_column].max()) if not data_sorted.empty else 1.0
             all_upper = max(all_max * 1.12, 0.01)
 
-            # "All Types" button: show all traces, and show top 12 overall in the legend
             all_legend_flags = [i < 12 for i in range(len(fig.data))]
             filter_buttons = [
                 dict(
@@ -465,7 +519,6 @@ def create_trends_plot(
 
             for c_type in collab_types:
                 vis = [trace.meta == c_type for trace in fig.data]
-                # Show the top 12 traces OF THIS SPECIFIC TIER in the bottom legend when selected!
                 tier_legend_flags = [
                     (trace.meta == c_type and trace_tier_ranks[idx] < 12)
                     for idx, trace in enumerate(fig.data)
@@ -505,8 +558,13 @@ def create_trends_plot(
     max_yr = int(data_sorted['year'].max()) if not data_sorted.empty else 2022
     min_yr = int(data_sorted['year'].min()) if not data_sorted.empty else 1996
 
+    if mode != "compare_individuals" or not show_flags:
+        fig.update_layout(
+            xaxis=dict(range=[min_yr - 0.5, max_yr + (1.8 if mode == "find_collaborations" else 1.0)])
+        )
+
     fig.update_layout(
-        height=660,
+        height=560 if mode == "compare_individuals" else 620,
         dragmode='zoom',
         yaxis=dict(
             ticksuffix='%',
@@ -516,8 +574,6 @@ def create_trends_plot(
         ),
         xaxis=dict(
             fixedrange=False,
-            # Extra right margin in collaboration mode so end-of-line ISO labels fit cleanly
-            range=[min_yr - 0.5, max_yr + (1.8 if mode == "find_collaborations" else 2.2)],
             title=dict(text="Year (Drag on chart to zoom, double-click to reset)", standoff=5, font=dict(size=12, color='black'))
         ),
         hovermode='closest' if mode == "find_collaborations" else 'x unified',
@@ -535,7 +591,7 @@ def create_trends_plot(
         legend=dict(
             orientation="h",
             yanchor="top",
-            y=-0.14,
+            y=-0.15,
             xanchor="center",
             x=0.5,
             bgcolor="rgba(255,255,255,0.9)",
@@ -543,19 +599,21 @@ def create_trends_plot(
             borderwidth=1,
             font=dict(size=11),
             title=dict(
-                text="Countries:" if mode == "compare_individuals" else "Top 12 in Active View (click to hide, double-click to isolate):",
+                text="Selected Countries (avg share):" if mode == "compare_individuals" else "Top 12 in Active View (click to hide, double-click to isolate):",
                 font=dict(size=11)
             )
         ),
         updatemenus=updatemenus,
         margin=dict(
             l=65,
-            r=40,
-            b=115,
-            t=85 if (mode == "find_collaborations" and updatemenus) else 45
+            r=35,
+            b=110,
+            t=80 if (mode == "find_collaborations" and updatemenus) else 35
         )
     )
     return fig
+
+
 def create_enhanced_folium_map(
     country_list: pd.DataFrame,
     selected_countries: List[str],
@@ -563,9 +621,9 @@ def create_enhanced_folium_map(
     map_style: str = "bubbles"
 ) -> folium.Map:
     """
-    Unified high-visual-impact Folium map supporting 3 modes inspired by the reference screenshots:
+    Unified full-width Folium map supporting 3 visual modes with persistent zoom/pan memory:
     - 'bubbles': Superzip-style proportional bubbles where BOTH radius and color intensity encode CS share (%)
-    - 'flags': Circular national flag badges on the map (FIFA/Leaflet flag style) with rich cards
+    - 'flags': Circular national flag badges on the map (using local ./www/flags/ PNGs)
     - 'polygons': Shaded GeoJSON country boundaries colored by CS contribution intensity
     """
     if not country_list.empty:
@@ -585,39 +643,63 @@ def create_enhanced_folium_map(
     m = folium.Map(
         location=[center_lat, center_lng],
         zoom_start=zoom_start,
-        tiles=None,  # Start clean so xyzservices doesn't inject an API-key tile layer
+        tiles=None,
         control_scale=True
     )
 
-    # 1. Default Light Theme (Direct CartoDB Positron URL — 100% Free, No API Key Required)
     # folium.TileLayer(
     #     tiles="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
-    #     attr='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    #     attr='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
     #     name="Light Map (Positron)",
     #     max_zoom=19,
     #     control=True
     # ).add_to(m)
 
-    # # 2. Optional Dark Theme (Great for making Viridis bubbles & flags pop!)
     # folium.TileLayer(
-    #     tiles="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-    #     attr='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-    #     name="Dark Map (Dark Matter)",
+    #     tiles="https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+    #     attr='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    #     name="OpenStreetMap",
     #     max_zoom=19,
     #     control=True,
-    #     show=False
+    #     show=True
     # ).add_to(m)
-
-    # 3. Optional Standard OpenStreetMap
+    
+    # folium.TileLayer(
+    #     tiles="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
+    #     attr='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://opentopomap.org/">OpenTopoMap</a>',
+    #     name="Topographic Map (OpenTopoMap)",
+    #     max_zoom=17,
+    #     control=True
+    # ).add_to(m)
+    
+    # folium.TileLayer(
+    #     tiles="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
+    #     attr='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://opentopomap.org/">OpenTopoMap</a>',
+    #     name="Topographic Map (OpenTopoMap)",
+    #     max_zoom=17,
+    #     control=True
+    # ).add_to(m)
+    
     folium.TileLayer(
-        tiles="https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-        attr='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-        name="OpenStreetMap",
+        tiles="https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png",
+        attr='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://hot.openstreetmap.org/">HOT</a>',
+        name="Humanitarian Map (HOT)",
         max_zoom=19,
-        control=True
-        # show=False
+        control=True,
+        show=True
     ).add_to(m)
-    # Compute average and peak share per country over the active filter period
+    
+    # folium.TileLayer(
+    #     tiles="https://{s}.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png",
+    #     attr='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://osmfr.org/">OSM France</a>',
+    #     name="French Map (OSM France)",
+    #     max_zoom=20,
+    #     control=True
+    # ).add_to(m)
+    
+
+
+
     avg_shares = {}
     max_shares = {}
     if contributions_df is not None and not contributions_df.empty:
@@ -628,16 +710,14 @@ def create_enhanced_folium_map(
             max_shares = grouped.max().to_dict()
 
     max_avg_share = max(list(avg_shares.values()) + [1.0])
-    # Non-linear (square-root) Viridis/Plasma colormap so 0.1% - 41% has rich color gradation
     colormap = cm.LinearColormap(
-        colors=['#440154', '#3b528b', '#21918c', '#5ec962', '#fde725'],
+        colors=['#3b82f6', '#1d4ed8', '#001a4d', '#ea580c', '#991b1b'],
         vmin=0,
         vmax=np.sqrt(max_avg_share),
         caption="Avg Chemical Space Share (%) [√-scaled intensity]"
     )
 
-    iso_to_geometry = get_world_geometries() if map_style in ["polygons", "cartogram"] else {}
-    cartogram_base = get_cartogram_base_geometries() if map_style == "cartogram" else {}
+    iso_to_geometry = get_world_geometries() if map_style == "polygons" else {}
 
     for _, row in country_list.iterrows():
         iso = str(row['iso2c']).strip().upper()
@@ -647,20 +727,19 @@ def create_enhanced_folium_map(
         avg_val = float(avg_shares.get(iso, 0.0))
         peak_val = float(max_shares.get(iso, 0.0))
         is_selected = iso in selected_countries
-        flag_url = get_flag_url(iso)
+        flag_url = get_flag_url(iso, for_plotly=False)
 
         btn_bg = '#e74c3c' if is_selected else '#1e88e5'
         btn_label = '🗑️ Deselect Country' if is_selected else '✅ Select Country'
 
-        # Wikipedia / Player-Card style popup (inspired by Screenshot 1)
         popup_html = f"""
         <div style="font-family: 'Segoe UI', Arial, sans-serif; text-align: center; min-width: 175px; padding: 4px;">
             <img src="{flag_url}" width="52" style="border: 1px solid #ddd; border-radius: 4px; box-shadow: 0 1px 4px rgba(0,0,0,0.15); margin-bottom: 6px;"/><br/>
             <div style="font-size: 14px; font-weight: 700; color: #1f2937;">{name} ({iso})</div>
             <div style="font-size: 11px; color: #6b7280; margin-bottom: 6px;">Region: <b>{region}</b></div>
             <div style="background: #f3f4f6; border-radius: 6px; padding: 6px; font-size: 11.5px; color: #111827; text-align: left;">
-                <div>📊 <b>Period Avg:</b> {avg_val:.2f}%</div>
-                <div>🚀 <b>Peak Share:</b> {peak_val:.2f}%</div>
+                <div>📊 <b>Period Avg:</b> {avg_val:.3f}%</div>
+                <div>🚀 <b>Peak Share:</b> {peak_val:.3f}%</div>
             </div>
             <button onclick="
                 if (window.parent && window.parent.Shiny) {{
@@ -682,12 +761,11 @@ def create_enhanced_folium_map(
         tooltip_html = (
             f"<div style='font-family:sans-serif; font-size:12px;'>"
             f"<b>{iso_to_flag_emoji(iso)} {name} ({iso})</b><br/>"
-            f"Avg CS Share: <b>{avg_val:.2f}%</b> | Peak: {peak_val:.2f}%<br/>"
-            f"<i>Click to {'deselect' if is_selected else 'select'}</i></div>"
+            f"Avg CS Share: <b>{avg_val:.3f}%</b> | Peak: {peak_val:.3f}%<br/>"
+            f"<i>Click marker to {'deselect' if is_selected else 'select'}</i></div>"
         )
 
         if map_style == "flags":
-            # Circular flag badge (Screenshot 1 style)
             size_px = 34 if is_selected else int(np.clip(20 + np.sqrt(avg_val) * 3.2, 20, 38))
             border_css = "3px solid #e74c3c" if is_selected else "2px solid #ffffff"
             shadow_css = "0 0 10px rgba(231, 76, 60, 0.9)" if is_selected else "0 2px 5px rgba(0,0,0,0.35)"
@@ -702,7 +780,6 @@ def create_enhanced_folium_map(
                 background-position: center;
                 border: {border_css};
                 box-shadow: {shadow_css};
-                transition: transform 0.15s ease;
             "></div>
             """
             folium.Marker(
@@ -716,16 +793,8 @@ def create_enhanced_folium_map(
                 popup=folium.Popup(popup_html, max_width=240)
             ).add_to(m)
 
-        elif map_style in ["polygons", "cartogram"]:
+        elif map_style == "polygons":
             geometry = iso_to_geometry.get(iso)
-            if map_style == "cartogram":
-                c_entry = cartogram_base.get( f"ISO2_{iso}" )
-                if c_entry is not None:
-                    norm_area = np.clip(c_entry["area"] / 25.0, 0.25, 18.0)
-                    scale_k = 0.18 if avg_val <= 0.001 else float(np.clip(np.sqrt(max((avg_val / 4.0) / np.sqrt(norm_area), 0.03)), 0.18, 2.35))
-                    cx, cy = c_entry["centroid"]
-                    geometry = _scale_geojson_geometry(c_entry["geometry"], cx, cy, scale_k)
-
             fill_col = colormap(np.sqrt(max(avg_val, 0.0))) if avg_val > 0 else "#d1d5db"
             if geometry is not None:
                 folium.GeoJson(
@@ -733,7 +802,7 @@ def create_enhanced_folium_map(
                     style_function=lambda x, fc=fill_col, sel=is_selected: {
                         'fillColor': fc,
                         'color': '#e74c3c' if sel else '#ffffff',
-                        'weight': 3 if sel else 1,
+                        'weight': 2.5 if sel else 0.8,
                         'fillOpacity': 0.85 if sel else 0.65
                     },
                     tooltip=folium.Tooltip(tooltip_html, sticky=True),
@@ -753,7 +822,6 @@ def create_enhanced_folium_map(
                 ).add_to(m)
 
         else:
-            # Default: 'bubbles' (Superzip Screenshot 3 style — pixel-scaled CircleMarker with Viridis intensity)
             radius_px = float(np.clip(6 + np.sqrt(max(avg_val, 0.05)) * 5.2, 6, 36))
             fill_col = colormap(np.sqrt(max(avg_val, 0.0)))
             stroke_col = "#e74c3c" if is_selected else "#1f2937"
@@ -771,238 +839,44 @@ def create_enhanced_folium_map(
                 popup=folium.Popup(popup_html, max_width=240)
             ).add_to(m)
 
-    if map_style in ["bubbles", "polygons", "cartogram"]:
+    if map_style in ["bubbles", "polygons"]:
         colormap.add_to(m)
     folium.LayerControl(position="topright", collapsed=True).add_to(m)
+
+    # Inject script to preserve zoom & center across country clicks and animation updates!
+    map_var = m.get_name()
+    preserve_view_js = f"""
+    <script>
+    document.addEventListener("DOMContentLoaded", function() {{
+        var checkMap = setInterval(function() {{
+            if (typeof {map_var} !== "undefined") {{
+                clearInterval(checkMap);
+                var leafletMap = {map_var};
+                var storeTarget = window.parent || window;
+                if (storeTarget._cs_saved_map_view) {{
+                    leafletMap.setView(
+                        storeTarget._cs_saved_map_view.center,
+                        storeTarget._cs_saved_map_view.zoom,
+                        {{animate: false}}
+                    );
+                }}
+                leafletMap.on("moveend zoomend", function() {{
+                    var c = leafletMap.getCenter();
+                    storeTarget._cs_saved_map_view = {{
+                        center: [c.lat, c.lng],
+                        zoom: leafletMap.getZoom()
+                    }};
+                }});
+            }}
+        }}, 40);
+    }});
+    </script>
+    """
+    m.get_root().html.add_child(folium.Element(preserve_view_js))
     return m
 
 
-def create_animated_bubble_figure(
-    df: pd.DataFrame,
-    chemical_category: str = "All",
-    top_n: int = 20
-) -> go.Figure:
-    """
-    Client-side 60fps animated Bubble & Flag Explorer across 1996-2022.
-    X-axis: Rank (1 to top_n), Y-axis: CS Share (%), Bubble Size: CS Share (%), Color: Region.
-    """
-    sub = df[(df['is_collab'] == False) & (df['chemical'] == chemical_category)].copy()
-    if sub.empty:
-        return create_empty_plot("No data available for animated bubble chart.")
-
-    val_col = 'percentage' if 'percentage' in sub.columns else 'value'
-    sub['year'] = pd.to_numeric(sub['year'], errors='coerce')
-    sub[val_col] = pd.to_numeric(sub[val_col], errors='coerce')
-    sub = sub.dropna(subset=['year', val_col, 'country'])
-    sub['region'] = sub['region'].fillna('Other')
-
-    # Keep the top_n countries overall so countries stay consistently tracked across years
-    top_countries = (
-        sub.groupby('country')[val_col]
-        .mean()
-        .sort_values(ascending=False)
-        .head(top_n)
-        .index.tolist()
-    )
-    anim_df = sub[sub['country'].isin(top_countries)].copy()
-    anim_df['year'] = anim_df['year'].astype(int)
-    anim_df = anim_df.sort_values(['year', val_col], ascending=[True, False])
-
-    # Compute yearly rank (1 = highest contributor in that year)
-    anim_df['yearly_rank'] = anim_df.groupby('year')[val_col].rank(ascending=False, method='first')
-    anim_df['label_with_flag'] = anim_df.apply(
-        lambda r: f"{iso_to_flag_emoji(str(r.get('iso2c', '')))} {r['country']}", axis=1
-    )
-    anim_df['bubble_size'] = np.sqrt(anim_df[val_col].clip(lower=0.2)) * 8 + 8
-
-    max_y = max(float(anim_df[val_col].max()) * 1.15, 10.0)
-
-    fig = px.scatter(
-        anim_df,
-        x="yearly_rank",
-        y=val_col,
-        animation_frame="year",
-        animation_group="country",
-        size="bubble_size",
-        color="region",
-        hover_name="label_with_flag",
-        text="label_with_flag",
-        custom_data=["country", "iso2c", "year", val_col, "yearly_rank", "region"],
-        size_max=48,
-        range_x=[0.3, top_n + 0.8],
-        range_y=[0, max_y],
-        color_discrete_sequence=px.colors.qualitative.Bold
-    )
-
-    hover_tmpl = (
-        "<b>%{customdata[0]} (%{customdata[1]})</b><br>"
-        "Year: %{customdata[2]}<br>"
-        "Global Rank: <b>#%{customdata[4]:.0f}</b><br>"
-        "CS Contribution: <b>%{customdata[3]:.2f}%</b><br>"
-        "Region: %{customdata[5]}<extra></extra>"
-    )
-    fig.update_traces(
-        textposition="top center",
-        textfont=dict(size=10),
-        hovertemplate=hover_tmpl
-    )
-    for frame in fig.frames:
-        for trace in frame.data:
-            trace.hovertemplate = hover_tmpl
-            trace.textposition = "top center"
-
-    fig.update_layout(
-        title=dict(
-            text=f"<b>Animated Global Ranking & Bubble Share (1996–2022) — {chemical_category}</b>",
-            x=0.5, xanchor="center"
-        ),
-        xaxis=dict(
-            title="Global Contributor Rank (1 = Leader)",
-            tickmode="linear", tick0=1, dtick=1,
-            autorange=False
-        ),
-        yaxis=dict(
-            title="Share of New Substances (%)",
-            ticksuffix="%",
-            autorange=False
-        ),
-        template="plotly_white",
-        height=560,
-        legend=dict(title=dict(text="Region"), orientation="h", y=1.08, x=0.5, xanchor="center"),
-        margin=dict(l=60, r=40, t=80, b=60)
-    )
-
-    if fig.layout.updatemenus:
-        fig.layout.updatemenus[0].buttons[0].args[1]["frame"]["duration"] = 550
-        fig.layout.updatemenus[0].buttons[0].args[1]["transition"]["duration"] = 300
-
-    return fig
-
-
-def create_article_plot(data: pd.DataFrame, title: str, show_exp_fit: bool = True) -> go.Figure:
-    """Create main article plot (Figure 1a) with China's exponential growth fit and 2013 crossover marker."""
-    if data.empty:
-        return create_empty_plot("No country participation data available")
-
-    fig = go.Figure()
-    min_year = int(data['year'].min())
-    max_year = int(data['year'].max())
-
-    for country in data['country'].unique():
-        c_df = data[data['country'] == country].sort_values('year')
-        color = c_df['cc'].iloc[0] if 'cc' in c_df.columns and not c_df['cc'].dropna().empty else None
-        fig.add_trace(go.Scatter(
-            x=c_df['year'],
-            y=c_df['value'],
-            mode='lines+markers',
-            name=country,
-            line=dict(color=color, width=2) if color else dict(width=2),
-            marker=dict(
-                size=c_df['value'].abs().clip(lower=4, upper=11),
-                opacity=0.8,
-                color=color if color else '#1f77b4'
-            ),
-            hovertemplate=f"<b>{country}</b><br>Year: %{{x}}<br>Share: <b>%{{y:.2f}}%</b><extra></extra>"
-        ))
-
-    # Overlay the paper's exact exponential regression for China (SI p. 10): 1.33 * exp(0.1372 * (t - 1996))
-    if show_exp_fit:
-        years_arr = np.arange(1996, max_year + 1)
-        exp_fit = 1.33 * np.exp(0.1372 * (years_arr - 1996))
-        fig.add_trace(go.Scatter(
-            x=years_arr,
-            y=exp_fit,
-            mode='lines',
-            name='China Exp. Fit (R² = 0.98)',
-            line=dict(color='#c5051b', width=1.5, dash='dot'),
-            hovertemplate="<b>China Exponential Fit</b><br>1.33·e^{0.1372(t-1996)}<br>Year: %{x}<br>Fit: %{y:.2f}%<extra></extra>"
-        ))
-
-    # Highlight 2013 crossover year
-    fig.add_vline(x=2013, line_dash="dash", line_color="rgba(197, 5, 27, 0.45)")
-    fig.add_annotation(
-        x=2013, y=38,
-        text="<b>2013:</b> China becomes #1 contributor",
-        showarrow=True, arrowhead=2, ax=-60, ay=-25,
-        font=dict(size=11, color="#c5051b"),
-        bgcolor="rgba(255,255,255,0.85)", bordercolor="#c5051b", borderwidth=1
-    )
-
-    fig.update_layout(
-        height=520,
-        yaxis=dict(
-            ticksuffix='%', fixedrange=True,
-            title=dict(text="Share of New Substances (%)", standoff=1, font=dict(size=12, color='black'))
-        ),
-        xaxis=dict(
-            autorange=False,
-            range=[min_year - 1, max_year + 1],
-            title=dict(text="Year", standoff=1, font=dict(size=12, color='black'))
-        ),
-        template='plotly_white',
-        showlegend=True,
-        legend=dict(orientation="h", y=-0.22, traceorder="reversed"),
-        hovermode='x unified',
-        modebar_remove=['zoom', 'pan', 'lasso', 'select', 'zoomIn', 'zoomOut', 'autoScale'],
-        updatemenus=[
-            dict(
-                type="buttons",
-                direction="right",
-                active=2,
-                x=1, y=1.15,
-                buttons=[
-                    dict(label="1996–2012", method="relayout", args=[{"xaxis.range": [1996, 2013]}]),
-                    dict(label="2012–2022", method="relayout", args=[{"xaxis.range": [max_year - 10, max_year + 1]}]),
-                    dict(label="All Years", method="relayout", args=[{"xaxis.range": [min_year - 1, max_year + 1]}])
-                ]
-            )
-        ]
-    )
-    return fig
-
-
-def create_top_trends_plot(data: pd.DataFrame, title: str) -> go.Figure:
-    """Create top 10 contributors/collaborations plot."""
-    fig = go.Figure()
-    avg_percentages = data.groupby('country')['percentage'].mean().sort_values(ascending=True)
-
-    for entity in avg_percentages.index:
-        entity_data = data[data['country'] == entity].sort_values('year')
-        avg_value = avg_percentages[entity]
-        color = entity_data['cc'].iloc[0] if 'cc' in entity_data.columns and not entity_data['cc'].dropna().empty else None
-
-        fig.add_trace(go.Scatter(
-            x=entity_data['year'],
-            y=entity_data['percentage'],
-            mode='lines+markers',
-            name=f"{entity} ({avg_value:.2f}%)",
-            line=dict(width=2, color=color) if color else dict(width=2),
-            marker=dict(color=color if color else '#1f77b4', size=6),
-            hovertemplate="<b>%{fullData.name}</b><br>Year: %{x}<br>Contribution: <b>%{y:.2f}%</b><extra></extra>"
-        ))
-
-    fig.update_layout(
-        title=dict(text=f"<b>{title}</b>", x=0.5, xanchor="center"),
-        height=520,
-        yaxis=dict(
-            ticksuffix='%', fixedrange=True,
-            title=dict(text="New Substances (%)", standoff=1, font=dict(size=12, color='black'))
-        ),
-        xaxis=dict(
-            fixedrange=True,
-            title=dict(text="Year", standoff=1, font=dict(size=12, color='black'))
-        ),
-        template='plotly_white',
-        showlegend=True,
-        legend=dict(orientation="h", y=-0.22, traceorder="reversed"),
-        hovermode='closest',
-        modebar_remove=['zoom', 'pan', 'lasso', 'select', 'zoomIn', 'zoomOut', 'autoScale']
-    )
-    return fig
-
 # Calibrated for z = np.log10(1 + percentage * 10), where max_z = log10(1 + 41*10) ≈ 2.615:
-# 0.00% -> Muted Slate | 0.02%–1% -> Sky/Bright Blue | 18–25% (US Peak) -> Heavy Navy Blue
-# 28% -> Warm Orange Crossover | 35–41%+ (China Peak) -> Deep Crimson Red
 GEOPOLITICAL_CS_COLORSCALE = [
     [0.00, "#cbd5e1"],  # 0.00% - Muted slate for 0% in a given year
     [0.03, "#93c5fd"],  # ~0.02% - Clear sky blue so small countries are visibly colored!
@@ -1026,10 +900,7 @@ def create_contribution_choropleth(data: pd.DataFrame) -> go.Figure:
     if df_clean.empty:
         return create_empty_plot("No valid country data available for choropleth")
 
-    # 1. Force integer years so '1996.0' never appears in the slider or legend
     df_clean['year_int'] = df_clean['year'].round().astype(int)
-
-    # 2. Complete (country x year) grid so every frame has identical polygon order for smooth morphing
     all_years = sorted(df_clean['year_int'].unique())
     country_meta = (
         df_clean[['iso3c', 'iso2c', 'country', 'region']]
@@ -1109,12 +980,12 @@ def create_contribution_choropleth(data: pd.DataFrame) -> go.Figure:
             showcoastlines=True,
             coastlinecolor="rgba(160,160,160,0.6)",
             showland=True,
-            landcolor="#e2e8f0",      # Soft neutral gray for countries with no reported substances
+            landcolor="#e2e8f0",
             lataxis_range=[-55, 85],
             projection_scale=1.08
         ),
         template='plotly_white',
-        height=560,
+        height=520,
         margin=dict(l=0, r=10, t=10, b=0)
     )
 
@@ -1219,10 +1090,216 @@ def create_contribution_map_plot(
             bgcolor='rgba(0,0,0,0)'
         ),
         template='plotly_white',
-        height=550,
+        height=520,
         margin=dict(l=0, r=10, t=35, b=0)
     )
     return fig
+
+
+def create_animated_bubble_figure(
+    df: pd.DataFrame,
+    chemical_category: str = "All",
+    top_n: int = 20
+) -> go.Figure:
+    """Client-side 60fps animated Bubble & Flag Explorer across 1996-2022."""
+    sub = df[(df['is_collab'] == False) & (df['chemical'] == chemical_category)].copy()
+    if sub.empty:
+        return create_empty_plot("No data available for animated bubble chart.")
+
+    val_col = 'percentage' if 'percentage' in sub.columns else 'value'
+    sub['year'] = pd.to_numeric(sub['year'], errors='coerce')
+    sub[val_col] = pd.to_numeric(sub[val_col], errors='coerce')
+    sub = sub.dropna(subset=['year', val_col, 'country'])
+    sub['region'] = sub['region'].fillna('Other')
+
+    top_countries = (
+        sub.groupby('country')[val_col]
+        .mean()
+        .sort_values(ascending=False)
+        .head(top_n)
+        .index.tolist()
+    )
+    anim_df = sub[sub['country'].isin(top_countries)].copy()
+    anim_df['year'] = anim_df['year'].astype(int)
+    anim_df = anim_df.sort_values(['year', val_col], ascending=[True, False])
+
+    anim_df['yearly_rank'] = anim_df.groupby('year')[val_col].rank(ascending=False, method='first')
+    anim_df['label_with_flag'] = anim_df.apply(
+        lambda r: f"{iso_to_flag_emoji(str(r.get('iso2c', '')))} {r['country']}", axis=1
+    )
+    anim_df['bubble_size'] = np.sqrt(anim_df[val_col].clip(lower=0.2)) * 8 + 8
+
+    max_y = max(float(anim_df[val_col].max()) * 1.15, 10.0)
+
+    fig = px.scatter(
+        anim_df,
+        x="yearly_rank",
+        y=val_col,
+        animation_frame="year",
+        animation_group="country",
+        size="bubble_size",
+        color="region",
+        hover_name="label_with_flag",
+        text="label_with_flag",
+        custom_data=["country", "iso2c", "year", val_col, "yearly_rank", "region"],
+        size_max=48,
+        range_x=[0.3, top_n + 0.8],
+        range_y=[0, max_y],
+        color_discrete_sequence=px.colors.qualitative.Bold
+    )
+
+    hover_tmpl = (
+        "<b>%{customdata[0]} (%{customdata[1]})</b><br>"
+        "Year: %{customdata[2]}<br>"
+        "Global Rank: <b>#%{customdata[4]:.0f}</b><br>"
+        "CS Contribution: <b>%{customdata[3]:.2f}%</b><br>"
+        "Region: %{customdata[5]}<extra></extra>"
+    )
+    fig.update_traces(textposition="top center", textfont=dict(size=10), hovertemplate=hover_tmpl)
+    for frame in fig.frames:
+        for trace in frame.data:
+            trace.hovertemplate = hover_tmpl
+            trace.textposition = "top center"
+
+    fig.update_layout(
+        title=dict(
+            text=f"<b>Animated Global Ranking & Bubble Share (1996–2022) — {chemical_category}</b>",
+            x=0.5, xanchor="center"
+        ),
+        xaxis=dict(title="Global Contributor Rank (1 = Leader)", tickmode="linear", tick0=1, dtick=1, autorange=False),
+        yaxis=dict(title="Share of New Substances (%)", ticksuffix="%", autorange=False),
+        template="plotly_white",
+        height=560,
+        legend=dict(title=dict(text="Region"), orientation="h", y=1.08, x=0.5, xanchor="center"),
+        margin=dict(l=60, r=40, t=80, b=60)
+    )
+
+    if fig.layout.updatemenus:
+        fig.layout.updatemenus[0].buttons[0].args[1]["frame"]["duration"] = 550
+        fig.layout.updatemenus[0].buttons[0].args[1]["transition"]["duration"] = 300
+
+    return fig
+
+
+def create_article_plot(data: pd.DataFrame, title: str, show_exp_fit: bool = True) -> go.Figure:
+    """Create main article plot (Figure 1a) with China's exponential growth fit and 2013 crossover marker."""
+    if data.empty:
+        return create_empty_plot("No country participation data available")
+
+    fig = go.Figure()
+    min_year = int(data['year'].min())
+    max_year = int(data['year'].max())
+
+    for country in data['country'].unique():
+        c_df = data[data['country'] == country].sort_values('year')
+        color = c_df['cc'].iloc[0] if 'cc' in c_df.columns and not c_df['cc'].dropna().empty else None
+        fig.add_trace(go.Scatter(
+            x=c_df['year'],
+            y=c_df['value'],
+            mode='lines+markers',
+            name=country,
+            line=dict(color=color, width=2) if color else dict(width=2),
+            marker=dict(
+                size=c_df['value'].abs().clip(lower=4, upper=11),
+                opacity=0.8,
+                color=color if color else '#1f77b4'
+            ),
+            hovertemplate=f"<b>{country}</b><br>Year: %{{x}}<br>Share: <b>%{{y:.2f}}%</b><extra></extra>"
+        ))
+
+    if show_exp_fit:
+        years_arr = np.arange(1996, max_year + 1)
+        exp_fit = 1.33 * np.exp(0.1372 * (years_arr - 1996))
+        fig.add_trace(go.Scatter(
+            x=years_arr,
+            y=exp_fit,
+            mode='lines',
+            name='China Exp. Fit (R² = 0.98)',
+            line=dict(color='#c5051b', width=1.5, dash='dot'),
+            hovertemplate="<b>China Exponential Fit</b><br>1.33·e^{0.1372(t-1996)}<br>Year: %{x}<br>Fit: %{y:.2f}%<extra></extra>"
+        ))
+
+    fig.add_vline(x=2013, line_dash="dash", line_color="rgba(197, 5, 27, 0.45)")
+    fig.add_annotation(
+        x=2013, y=38,
+        text="<b>2013:</b> China becomes #1 contributor",
+        showarrow=True, arrowhead=2, ax=-60, ay=-25,
+        font=dict(size=11, color="#c5051b"),
+        bgcolor="rgba(255,255,255,0.85)", bordercolor="#c5051b", borderwidth=1
+    )
+
+    fig.update_layout(
+        height=520,
+        yaxis=dict(
+            ticksuffix='%', fixedrange=True,
+            title=dict(text="Share of New Substances (%)", standoff=1, font=dict(size=12, color='black'))
+        ),
+        xaxis=dict(
+            autorange=False,
+            range=[min_year - 1, max_year + 1],
+            title=dict(text="Year", standoff=1, font=dict(size=12, color='black'))
+        ),
+        template='plotly_white',
+        showlegend=True,
+        legend=dict(orientation="h", y=-0.22, traceorder="reversed"),
+        hovermode='x unified',
+        modebar_remove=['zoom', 'pan', 'lasso', 'select', 'zoomIn', 'zoomOut', 'autoScale'],
+        updatemenus=[
+            dict(
+                type="buttons",
+                direction="right",
+                active=2,
+                x=1, y=1.15,
+                buttons=[
+                    dict(label="1996–2012", method="relayout", args=[{"xaxis.range": [1996, 2013]}]),
+                    dict(label="2012–2022", method="relayout", args=[{"xaxis.range": [max_year - 10, max_year + 1]}]),
+                    dict(label="All Years", method="relayout", args=[{"xaxis.range": [min_year - 1, max_year + 1]}])
+                ]
+            )
+        ]
+    )
+    return fig
+
+
+def create_top_trends_plot(data: pd.DataFrame, title: str) -> go.Figure:
+    """Create top 10 contributors/collaborations plot."""
+    fig = go.Figure()
+    avg_percentages = data.groupby('country')['percentage'].mean().sort_values(ascending=True)
+
+    for entity in avg_percentages.index:
+        entity_data = data[data['country'] == entity].sort_values('year')
+        avg_value = avg_percentages[entity]
+        color = entity_data['cc'].iloc[0] if 'cc' in entity_data.columns and not entity_data['cc'].dropna().empty else None
+
+        fig.add_trace(go.Scatter(
+            x=entity_data['year'],
+            y=entity_data['percentage'],
+            mode='lines+markers',
+            name=f"{entity} ({avg_value:.2f}%)",
+            line=dict(width=2, color=color) if color else dict(width=2),
+            marker=dict(color=color if color else '#1f77b4', size=6),
+            hovertemplate="<b>%{fullData.name}</b><br>Year: %{x}<br>Contribution: <b>%{y:.2f}%</b><extra></extra>"
+        ))
+
+    fig.update_layout(
+        title=dict(text=f"<b>{title}</b>", x=0.5, xanchor="center"),
+        height=520,
+        yaxis=dict(
+            ticksuffix='%', fixedrange=True,
+            title=dict(text="New Substances (%)", standoff=1, font=dict(size=12, color='black'))
+        ),
+        xaxis=dict(
+            fixedrange=True,
+            title=dict(text="Year", standoff=1, font=dict(size=12, color='black'))
+        ),
+        template='plotly_white',
+        showlegend=True,
+        legend=dict(orientation="h", y=-0.22, traceorder="reversed"),
+        hovermode='closest',
+        modebar_remove=['zoom', 'pan', 'lasso', 'select', 'zoomIn', 'zoomOut', 'autoScale']
+    )
+    return fig
+
 
 def create_summary_dataframe(data: pd.DataFrame, mode: str) -> pd.DataFrame:
     """Create summary statistics table with flag emojis."""
@@ -1242,7 +1319,7 @@ def create_summary_dataframe(data: pd.DataFrame, mode: str) -> pd.DataFrame:
                 max_percentage=(value_column, 'max'),
                 years_present=('year', 'nunique')
             )
-            .round(2)
+            .round(3)
             .sort_values('avg_percentage', ascending=False)
         )
         summary.columns = ['Collaboration', 'Chemical Subspace', 'Type', 'Avg Share (%)', 'Peak Share (%)', 'Active Years']
@@ -1259,7 +1336,7 @@ def create_summary_dataframe(data: pd.DataFrame, mode: str) -> pd.DataFrame:
                 max_percentage=(value_column, 'max'),
                 years_present=('year', 'nunique')
             )
-            .round(2)
+            .round(3)
             .sort_values('avg_percentage', ascending=False)
         )
         summary['country'] = summary.apply(
@@ -1403,7 +1480,6 @@ def create_china_us_dual_axis_plot(data: pd.DataFrame) -> go.Figure:
             trace_params['yaxis'] = 'y2'
         fig.add_trace(go.Scatter(**trace_params))
 
-    # Highlight Obama-era bilateral science agreements (2009-2017) & 2018 China Initiative
     fig.add_vrect(
         x0=2009, x1=2017,
         fillcolor="rgba(91, 155, 213, 0.08)", opacity=1.0,
@@ -1436,391 +1512,3 @@ def create_china_us_dual_axis_plot(data: pd.DataFrame) -> go.Figure:
         modebar_remove=['zoom', 'pan', 'lasso', 'select', 'zoomIn', 'zoomOut', 'autoScale']
     )
     return fig
-
-
-
-import copy
-
-@lru_cache(maxsize=1)
-def get_cartogram_base_geometries(world_path: str = "./data/world_boundaries.geojson") -> dict:
-    """
-    Load world_boundaries.geojson once and precompute each country's (ISO3 and ISO2)
-    main landmass centroid (lon, lat) and approximate planar area so cartograms render in milliseconds.
-    """
-    base_geoms = {}
-    try:
-        with open(world_path, "r", encoding="utf-8") as f:
-            geojson_data = json.load(f)
-
-        for feature in geojson_data.get("features", []):
-            props = feature.get("properties") or {}
-            geom = feature.get("geometry")
-            if not geom:
-                continue
-
-            # Extract ISO-3 and ISO-2 codes
-            iso3 = None
-            for col in ['iso_a3_eh', 'iso_a3', 'adm0_a3', 'wb_a3', 'ISO_A3', 'iso3c']:
-                val = props.get(col)
-                if isinstance(val, str) and len(val.strip()) == 3 and val.strip() != "-99":
-                    iso3 = val.strip().upper()
-                    break
-
-            iso2 = None
-            for col in ['iso_a2_eh', 'wb_a2', 'iso_a2', 'ISO_A2', 'iso2c']:
-                val = props.get(col)
-                if isinstance(val, str) and len(val.strip()) == 2 and val.strip() != "-99":
-                    iso2 = val.strip().upper()
-                    break
-
-            # Collect all exterior polygon rings to find the main continental landmass centroid
-            rings = []
-            if geom["type"] == "Polygon":
-                if geom["coordinates"]:
-                    rings.append(np.array(geom["coordinates"][0], dtype=float))
-            elif geom["type"] == "MultiPolygon":
-                for poly in geom["coordinates"]:
-                    if poly and len(poly[0]) >= 3:
-                        rings.append(np.array(poly[0], dtype=float))
-
-            if not rings:
-                continue
-
-            # Compute shoelace area of each ring (weighted by cos(latitude) for spherical correction)
-            total_area = 0.0
-            best_ring = rings[0]
-            best_area = -1.0
-            for r in rings:
-                lon, lat = r[:, 0], r[:, 1]
-                cos_lat = np.cos(np.radians(np.mean(lat)))
-                area = 0.5 * np.abs(np.dot(lon, np.roll(lat, 1)) - np.dot(lat, np.roll(lon, 1))) * cos_lat
-                total_area += area
-                if area > best_area:
-                    best_area = area
-                    best_ring = r
-
-            # Anchor centroid to the largest contiguous landmass (so Alaska/French Guiana don't pull the centroid into the ocean)
-            cx = float(np.mean(best_ring[:, 0]))
-            cy = float(np.mean(best_ring[:, 1]))
-
-            entry = {
-                "geometry": geom,
-                "centroid": (cx, cy),
-                "area": max(total_area, 0.25)
-            }
-            if iso3:
-                base_geoms[iso3] = entry
-            if iso2:
-                base_geoms[f"ISO2_{iso2}"] = entry
-
-    except Exception as e:
-        print(f"Warning: Could not build cartogram base geometries: {e}")
-
-    return base_geoms
-
-
-def _scale_geojson_geometry(geom: dict, cx: float, cy: float, scale: float) -> dict:
-    """Scale all polygon coordinates radially around (cx, cy) by factor `scale`."""
-    if geom["type"] == "Polygon":
-        new_coords = []
-        for ring in geom["coordinates"]:
-            arr = np.array(ring, dtype=float)
-            arr[:, 0] = cx + (arr[:, 0] - cx) * scale
-            arr[:, 1] = cy + (arr[:, 1] - cy) * scale
-            # Clamp latitude to valid bounds
-            arr[:, 1] = np.clip(arr[:, 1], -85.0, 85.0)
-            new_coords.append(np.round(arr, 3).tolist())
-        return {"type": "Polygon", "coordinates": new_coords}
-
-    elif geom["type"] == "MultiPolygon":
-        new_polys = []
-        for poly in geom["coordinates"]:
-            new_rings = []
-            for ring in poly:
-                arr = np.array(ring, dtype=float)
-                arr[:, 0] = cx + (arr[:, 0] - cx) * scale
-                arr[:, 1] = cy + (arr[:, 1] - cy) * scale
-                arr[:, 1] = np.clip(arr[:, 1], -85.0, 85.0)
-                new_rings.append(np.round(arr, 3).tolist())
-            new_polys.append(new_rings)
-        return {"type": "MultiPolygon", "coordinates": new_polys}
-
-    return geom
-
-
-def create_cartogram_plot(
-    data: pd.DataFrame,
-    main_title: str = "Geopolitical Cartogram — Country Size Deformed by CS Share (%)",
-    animated: bool = False
-) -> go.Figure:
-    """
-    Create a Non-Contiguous Area Cartogram (static period average or animated yearly)
-    where each country's polygon geometry is deformed proportional to its CS share (%),
-    preserving the US-Blue -> China-Red geopolitical color scale.
-    """
-    if data.empty or 'total_percentage' not in data.columns:
-        return create_empty_plot("No data available for cartogram")
-
-    base_geoms = get_cartogram_base_geometries()
-    if not base_geoms:
-        return create_empty_plot("GeoJSON boundaries required for cartogram")
-
-    def compute_scale_factor(pct: float, geo_area: float) -> float:
-        """
-        Compute linear scaling factor k so visual area (k^2 * geo_area) reflects CS share (%).
-        Blends area-normalized target size with direct share scaling so both compact scientific
-        powerhouses (JP, DE, GB, KR, IN) and large leaders (CN, US) deform dramatically and cleanly.
-        """
-        if pct <= 0.001:
-            return 0.16  # Shrink zero/near-zero countries into tiny reference silhouettes
-        # Normalize geographic area relative to a medium-sized country (~25 sq deg)
-        norm_area = np.clip(geo_area / 25.0, 0.25, 18.0)
-        # Desired target area proportional to CS share
-        target_area_ratio = (pct / 4.0) / np.sqrt(norm_area)
-        k = np.sqrt(max(target_area_ratio, 0.03))
-        # Clamp between 0.18x (tiny contributors) and 2.35x (dominant 41% superpower)
-        return float(np.clip(k, 0.18, 2.35))
-
-    max_val = max(float(data['total_percentage'].max()), 40.0)
-    max_color_val = np.log10(1.0 + max_val * 10.0)
-    tick_vals_real = [0, 0.1, 1, 5, 10, 20, 40]
-    tick_vals_scaled = [np.log10(1.0 + v * 10.0) for v in tick_vals_real]
-
-    if not animated:
-        # --- STATIC PERIOD-AVERAGE CARTOGRAM ---
-        group_cols = ['iso3c', 'iso2c', 'country'] if 'iso3c' in data.columns else ['iso2c', 'country']
-        map_data = (
-            data.groupby(group_cols, as_index=False)
-            .agg(
-                avg_percentage=('total_percentage', 'mean'),
-                max_percentage=('total_percentage', 'max'),
-                min_percentage=('total_percentage', 'min'),
-                first_year=('year', 'min'),
-                last_year=('year', 'max'),
-                region=('region', 'first')
-            )
-        )
-
-        features = []
-        valid_rows = []
-        for _, row in map_data.iterrows():
-            iso3 = str(row.get('iso3c', '')).strip().upper()
-            iso2 = str(row.get('iso2c', '')).strip().upper()
-            entry = base_geoms.get(iso3) or base_geoms.get(f"ISO2_{iso2}")
-            if not entry:
-                continue
-
-            pct = float(row['avg_percentage'])
-            scale_k = compute_scale_factor(pct, entry["area"])
-            cx, cy = entry["centroid"]
-            scaled_geom = _scale_geojson_geometry(entry["geometry"], cx, cy, scale_k)
-            feat_id = iso3 if iso3 else iso2
-
-            features.append({
-                "type": "Feature",
-                "id": feat_id,
-                "geometry": scaled_geom,
-                "properties": {"id": feat_id}
-            })
-            row_copy = row.to_dict()
-            row_copy["feat_id"] = feat_id
-            row_copy["scale_k"] = scale_k
-            valid_rows.append(row_copy)
-
-        if not valid_rows:
-            return create_empty_plot("Could not match country geometries for cartogram")
-
-        plot_df = pd.DataFrame(valid_rows)
-        custom_geojson = {"type": "FeatureCollection", "features": features}
-
-        fig = go.Figure(data=go.Choropleth(
-            geojson=custom_geojson,
-            locations=plot_df['feat_id'],
-            featureidkey="id",
-            z=np.log10(1.0 + plot_df['avg_percentage'].clip(lower=0) * 10.0),
-            colorscale=GEOPOLITICAL_CS_COLORSCALE,
-            zmin=0,
-            zmax=max_color_val,
-            marker_line_color="rgba(15, 23, 42, 0.75)",
-            marker_line_width=0.9,
-            hovertemplate=(
-                "<b>%{customdata[0]}</b> (%{customdata[1]})<br>"
-                "Avg CS Share: <b>%{customdata[2]:.3f}%</b><br>"
-                "Cartogram Linear Scale: <b>%{customdata[7]:.2f}×</b><br>"
-                "Region: %{customdata[3]}<br>"
-                "Range: %{customdata[4]:.3f}% – %{customdata[5]:.3f}%<br>"
-                "Years: %{customdata[6]:.0f}–%{customdata[7_yr]:.0f}<extra></extra>"
-            ).replace("%{customdata[7_yr]:.0f}", "%{customdata[8]:.0f}"),
-            customdata=plot_df[[
-                'country', 'iso2c', 'avg_percentage', 'region',
-                'min_percentage', 'max_percentage', 'first_year', 'scale_k', 'last_year'
-            ]].values,
-            colorbar=dict(
-                title=dict(text="CS Share", side="right", font=dict(size=10)),
-                thickness=8,
-                len=0.68,
-                x=0.99,
-                xpad=2,
-                outlinewidth=0,
-                tickfont=dict(size=9),
-                tickvals=tick_vals_scaled,
-                ticktext=[f"{v}%" for v in tick_vals_real]
-            )
-        ))
-
-        fig.update_layout(
-            title={'text': f"<b>{main_title}</b>", 'x': 0.5, 'xanchor': 'center', 'font': {'size': 13}},
-            geo=dict(
-                showframe=False,
-                # Faint true coastlines in the background so users see how much each country swelled or shrank!
-                showcoastlines=True,
-                coastlinecolor="rgba(148, 163, 184, 0.35)",
-                showcountries=True,
-                countrycolor="rgba(203, 213, 225, 0.35)",
-                showland=True,
-                landcolor="#f8fafc",
-                lataxis_range=[-55, 85],
-                projection_type='robinson',
-                projection_scale=1.08,
-                bgcolor='rgba(0,0,0,0)'
-            ),
-            template='plotly_white',
-            height=560,
-            margin=dict(l=0, r=10, t=35, b=0)
-        )
-        return fig
-
-    else:
-        # --- ANIMATED YEAR-BY-YEAR DEFORMING CARTOGRAM (1996–2022) ---
-        df_clean = data.dropna(subset=['total_percentage', 'year', 'iso3c']).copy()
-        df_clean['year_int'] = df_clean['year'].round().astype(int)
-        all_years = sorted(df_clean['year_int'].unique())
-
-        country_meta = (
-            df_clean[['iso3c', 'iso2c', 'country', 'region']]
-            .drop_duplicates(subset=['iso3c'])
-            .set_index('iso3c')
-        )
-        # Keep only countries that exist in base_geoms
-        valid_iso3s = [
-            iso3 for iso3 in country_meta.index
-            if (iso3 in base_geoms) or (f"ISO2_{country_meta.loc[iso3, 'iso2c']}" in base_geoms)
-        ]
-        country_meta = country_meta.loc[valid_iso3s]
-
-        frames = []
-        slider_steps = []
-        first_trace = None
-
-        for yr in all_years:
-            yr_df = df_clean[df_clean['year_int'] == yr].groupby('iso3c')['total_percentage'].mean().to_dict()
-            yr_features = []
-            locs = []
-            z_vals = []
-            custom_rows = []
-
-            for iso3, meta_row in country_meta.iterrows():
-                iso2 = str(meta_row['iso2c']).strip().upper()
-                entry = base_geoms.get(iso3) or base_geoms.get(f"ISO2_{iso2}")
-                pct = float(yr_df.get(iso3, 0.0))
-                scale_k = compute_scale_factor(pct, entry["area"])
-                cx, cy = entry["centroid"]
-                scaled_geom = _scale_geojson_geometry(entry["geometry"], cx, cy, scale_k)
-
-                yr_features.append({
-                    "type": "Feature",
-                    "id": iso3,
-                    "geometry": scaled_geom,
-                    "properties": {"id": iso3}
-                })
-                locs.append(iso3)
-                z_vals.append(np.log10(1.0 + max(pct, 0.0) * 10.0))
-                custom_rows.append([meta_row['country'], iso2, str(yr), pct, meta_row['region'], scale_k])
-
-            yr_geojson = {"type": "FeatureCollection", "features": yr_features}
-            trace = go.Choropleth(
-                geojson=yr_geojson,
-                locations=locs,
-                featureidkey="id",
-                z=z_vals,
-                colorscale=GEOPOLITICAL_CS_COLORSCALE,
-                zmin=0,
-                zmax=max_color_val,
-                marker_line_color="rgba(15, 23, 42, 0.75)",
-                marker_line_width=0.85,
-                customdata=custom_rows,
-                hovertemplate=(
-                    "<b>%{customdata[0]}</b> (%{customdata[1]})<br>"
-                    "Year: <b>%{customdata[2]}</b><br>"
-                    "CS Share: <b>%{customdata[3]:.3f}%</b><br>"
-                    "Cartogram Scale: <b>%{customdata[5]:.2f}×</b><br>"
-                    "Region: %{customdata[4]}<extra></extra>"
-                ),
-                colorbar=dict(
-                    title=dict(text="CS Share", side="right", font=dict(size=10)),
-                    thickness=8,
-                    len=0.68,
-                    x=0.99,
-                    xpad=2,
-                    outlinewidth=0,
-                    tickfont=dict(size=9),
-                    tickvals=tick_vals_scaled,
-                    ticktext=[f"{v}%" for v in tick_vals_real]
-                )
-            )
-            if first_trace is None:
-                first_trace = trace
-
-            frames.append(go.Frame(data=[trace], name=str(yr)))
-            slider_steps.append(dict(
-                method="animate",
-                args=[[str(yr)], dict(mode="immediate", frame=dict(duration=380, redraw=True), transition=dict(duration=200))],
-                label=str(yr)
-            ))
-
-        fig = go.Figure(data=[first_trace] if first_trace else [], frames=frames)
-        fig.update_layout(
-            title={'text': f"<b>{main_title}</b>", 'x': 0.5, 'xanchor': 'center', 'font': {'size': 13}},
-            geo=dict(
-                showframe=False,
-                showcoastlines=True,
-                coastlinecolor="rgba(148, 163, 184, 0.35)",
-                showcountries=True,
-                countrycolor="rgba(203, 213, 225, 0.35)",
-                showland=True,
-                landcolor="#f8fafc",
-                lataxis_range=[-55, 85],
-                projection_type='robinson',
-                projection_scale=1.08
-            ),
-            updatemenus=[dict(
-                type="buttons",
-                showactive=False,
-                x=0.02, y=0.05,
-                pad=dict(r=10, t=12),
-                buttons=[
-                    dict(
-                        label="▶",
-                        method="animate",
-                        args=[None, dict(frame=dict(duration=380, redraw=True), fromcurrent=True, transition=dict(duration=200))]
-                    ),
-                    dict(
-                        label="⏸",
-                        method="animate",
-                        args=[[None], dict(frame=dict(duration=0, redraw=False), mode="immediate", transition=dict(duration=0))]
-                    )
-                ]
-            )],
-            sliders=[dict(
-                active=0,
-                currentvalue=dict(prefix="Year: ", font=dict(size=14, color="#1e293b"), visible=True, xanchor="left"),
-                pad=dict(t=5, b=5),
-                len=0.85,
-                x=0.12,
-                steps=slider_steps
-            )],
-            template='plotly_white',
-            height=560,
-            margin=dict(l=0, r=10, t=35, b=0)
-        )
-        return fig

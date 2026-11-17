@@ -1,8 +1,10 @@
+import io
 import pandas as pd
 import plotly.offline as plotly_offline
 from shiny import App, ui, render, reactive
 from pathlib import Path
 from functools import lru_cache
+import shinyswatch
 
 from utils.functions import (
     get_display_data,
@@ -10,7 +12,6 @@ from utils.functions import (
     create_trends_plot,
     create_contribution_choropleth,
     create_contribution_map_plot,
-    create_cartogram_plot,  # <-- ADD THIS IMPORT
     create_summary_dataframe,
     create_article_plot,
     create_top_trends_plot,
@@ -24,8 +25,6 @@ from utils.functions import (
     create_animated_bubble_figure,
     iso_to_flag_emoji
 )
-import shinyswatch
-
 
 www_dir = Path(__file__).resolve().parent / "www"
 
@@ -43,6 +42,25 @@ def load_country_list() -> pd.DataFrame:
         .sort_values('country')
         .reset_index(drop=True)
     )
+
+
+@lru_cache(maxsize=1)
+def get_default_top10_isos() -> list[str]:
+    """Compute the overall Top 10 countries (1996–2022, All substances) for initial load."""
+    try:
+        df = get_raw_dataframe()
+        sub = df[(df['is_collab'] == False) & (df['chemical'] == "All")]
+        top10 = (
+            sub.groupby('iso2c')['percentage']
+            .mean()
+            .sort_values(ascending=False)
+            .head(10)
+            .index.dropna()
+            .tolist()
+        )
+        return top10 if top10 else ["CN", "US", "JP", "DE", "IN", "GB", "FR", "RU", "ES", "KR"]
+    except Exception:
+        return ["CN", "US", "JP", "DE", "IN", "GB", "FR", "RU", "ES", "KR"]
 
 
 @lru_cache(maxsize=256)
@@ -74,6 +92,7 @@ def figure_to_html(fig):
 
 
 def create_app():
+    default_top10 = get_default_top10_isos()
     try:
         df_sample = get_raw_dataframe()[['chemical', 'year', 'region']]
         unique_chemicals = df_sample['chemical'].dropna().unique().tolist()
@@ -114,111 +133,37 @@ def create_app():
     app_ui = ui.page_navbar(
         ui.nav_panel(
             "Dashboard",
+            # --- Title Banner ---
             ui.div(
                 ui.h3(
                     "China's Rise in the Chemical Space & the Decline of US Influence",
-                    style=(
-                        "text-align: center; "
-                        "font-weight: 700; "
-                        "margin-top: 15px; "
-                        "margin-bottom: 8px;"
-                    )
+                    style="text-align: center; font-weight: 700; margin-top: 12px; margin-bottom: 6px;"
                 ),
                 ui.p(
-                    "Interactive geopolitical explorer of 15.7 million new chemical "
-                    "substances across 189 countries and territories (1996–2022) — ",
+                    "Interactive geopolitical explorer of 15.7 million new chemical substances across 189 countries and territories (1996–2022) — ",
                     ui.tags.a(
-                        "Bermúdez-Montaña et al. (2025), "
-                        "Quantitative Science Studies",
+                        "Bermúdez-Montaña et al. (2025), Quantitative Science Studies",
                         href="https://doi.org/10.1162/QSS.a.471",
                         target="_blank",
                         style="font-weight: 600;"
                     ),
-                    style=(
-                        "text-align: center; "
-                        "color: #555; "
-                        "margin-bottom: 20px;"
-                    )
+                    style="text-align: center; color: #555; margin-bottom: 16px;"
                 ),
-            ),
-            ui.layout_column_wrap(
-# Full-width Trends Card with Collapsible Right-Hand Choropleth Drawer
-            ui.card(
-                ui.card_header(
-                    ui.div(
-                        ui.div(
-                            ui.tags.span("📈 Contribution Trends", style="font-weight: 600;"),
-                            ui.tags.small(
-                                "Select countries and filters to update the chart.",
-                                class_="text-muted ms-2"
-                            )
-                        ),
-                        # Button in the header that also opens/closes the right sidebar!
-                        ui.input_action_button(
-                            "toggle_choropleth_drawer",
-                            "🌎 Toggle Side-by-Side Global Choropleth",
-                            class_="btn-sm btn-outline-primary"
-                        ),
-                        class_="d-flex align-items-center justify-content-between w-100"
-                    )
-                ),
-                ui.layout_sidebar(
-                    ui.sidebar(
-                        ui.div(
-                            ui.div(
-                                ui.tags.strong("🌎 Global Choropleth Snapshot"),
-                                ui.tags.small(
-                                    "Average or animated contribution by country",
-                                    class_="d-block text-muted mb-2"
-                                )
-                            ),
-                            ui.input_radio_buttons(
-                                "snapshot_mode",
-                                "🗺️ Map & Cartogram Mode:",
-                                choices={
-                                    "static": "🗺️ Standard Choropleth (Avg)",
-                                    "animated": "🎬 Animated Choropleth (Yearly)",
-                                    "cartogram_static": "🧩 Deformed Cartogram (Avg)",
-                                    "cartogram_anim": "🚀 Animated Cartogram (1996–2022)"
-                                },
-                                selected="cartogram_static",
-                                inline=True
-                            ),
-                            class_="snapshot-controls mb-2 pb-2 border-bottom"
-                        ),
-                        ui.output_ui("contribution_map"),
-                        id="choropleth_right_sidebar",
-                        position="right",
-                        open="closed",   # Starts collapsed so main_plot spans 100% of the UI!
-                        width="48%",     # Opens to a side-by-side split when clicked
-                        bg="#f8f9fa",
-                        padding="12px"
-                    ),
-                    # Main content area (100% width when sidebar is closed, 52% when open)
-                    ui.output_ui("main_plot"),
-                    fillable=True,
-                    border=False
-                ),
-                full_screen=True,
-                fill=True,
-                class_="dashboard-plot-card mb-3"
-                )
             ),
 
             # --- Main Navigation Tabs ---
             ui.navset_card_tab(
-                # TAB 1: Interactive Explorer (Superzip + Flag Map + Dynamic KPIs)
+                # TAB 1: Unified Interactive Explorer
                 ui.nav_panel(
                     "🗺️ Interactive Explorer",
 
-                    # Top Filter Bar
-# Top Filter Bar
+                    # 1. UNIFIED TOP GLOBAL CONTROL & DISCOVERY BAR (Shared by Trends, Map, and Collaborations)
                     ui.panel_well(
                         ui.row(
                             ui.column(
                                 3,
                                 ui.input_select(
-                                    "region_filter", "🌍 Filter by Region:",
+                                    "region_filter", "🌍 1. Filter by Region:",
                                     choices=initial_data['regions'], selected="All"
                                 )
                             ),
@@ -226,7 +171,7 @@ def create_app():
                                 5,
                                 ui.input_radio_buttons(
                                     "chemical_category",
-                                    "🧪 Chemical Subspace:",
+                                    "🧪 2. Select Chemical Subspace:",
                                     choices={
                                         "All": "All Substances (Total CS)",
                                         "Organic": "Organic",
@@ -240,102 +185,257 @@ def create_app():
                             ui.column(
                                 4,
                                 ui.input_slider(
-                                    "years", "📅 Year Range:",
+                                    "years", "📅 3. Year Range:",
                                     min=initial_data['min_year'], max=initial_data['max_year'],
                                     value=[initial_data['min_year'], initial_data['max_year']],
                                     step=1, sep="",
                                     animate=ui.AnimationOptions(
                                         interval=700,
                                         loop=True,
-                                        play_button=ui.tags.span("▶ Iniciar Animación", class_="btn btn-sm btn-outline-success"),
-                                        pause_button=ui.tags.span("⏸ Pausar", class_="btn btn-sm btn-outline-warning")
+                                        play_button=ui.tags.span("▶ Play Period", class_="btn btn-sm btn-outline-success"),
+                                        pause_button=ui.tags.span("⏸ Pause", class_="btn btn-sm btn-outline-warning")
                                     )
                                 )
                             )
                         ),
-                        class_="bg-light border rounded p-3 mb-3"
+                        ui.hr(style="margin: 10px 0;"),
+                        ui.row(
+                            ui.column(
+                                6,
+                                ui.input_selectize(
+                                    "country_picker",
+                                    "🔍 4. Search & Select Countries (or click directly on the map below):",
+                                    choices=initial_data['country_choices'],
+                                    selected=default_top10,
+                                    multiple=True,
+                                    remove_button=True,
+                                    width="100%",
+                                    options={"placeholder": "Type country name or ISO code..."}
+                                )
+                            ),
+                            ui.column(
+                                6,
+                                ui.div(
+                                    ui.tags.label(
+                                        "⚡ Quick Discovery Presets:",
+                                        class_="form-label d-block mb-1",
+                                        style="font-weight: 600; font-size: 0.9rem;"
+                                    ),
+                                    ui.div(
+                                        ui.input_action_button(
+                                            "preset_top10_current",
+                                            "🏆 Top 10 (Active Filter)",
+                                            class_="btn-sm btn-primary me-1 mb-1"
+                                        ),
+                                        ui.input_action_button(
+                                            "preset_decade_90s",
+                                            "🕰️ 1996–2005 Leaders",
+                                            class_="btn-sm btn-outline-secondary me-1 mb-1"
+                                        ),
+                                        ui.input_action_button(
+                                            "preset_decade_crossover",
+                                            "⚡ 2006–2014 Crossover",
+                                            class_="btn-sm btn-outline-secondary me-1 mb-1"
+                                        ),
+                                        ui.input_action_button(
+                                            "preset_decade_modern",
+                                            "🚀 2015–2022 Surge",
+                                            class_="btn-sm btn-outline-secondary me-1 mb-1"
+                                        ),
+                                        ui.input_action_button(
+                                            "preset_biggest_risers",
+                                            "🔥 Top 8 Biggest Risers",
+                                            class_="btn-sm btn-outline-success me-1 mb-1"
+                                        ),
+                                        ui.input_action_button(
+                                            "clear_selection",
+                                            "🗑️ Clear All",
+                                            class_="btn-sm btn-outline-danger mb-1"
+                                        ),
+                                        class_="d-flex flex-wrap align-items-center"
+                                    ),
+                                    ui.div(
+                                        ui.input_checkbox(
+                                            "show_flags_on_trends",
+                                            "🏳️ Show National Flags at End of Trend Lines",
+                                            value=True
+                                        ),
+                                        ui.tags.span(
+                                            ui.output_text("selection_info"),
+                                            class_="text-muted small ms-3"
+                                        ),
+                                        class_="d-flex align-items-center mt-1"
+                                    )
+                                )
+                            )
+                        ),
+                        class_="bg-light border rounded p-3 mb-3 shadow-sm"
                     ),
 
-                    # Superzip-inspired Map + Right Control Panel Layout
+                    # 2. LIVE KPI SUMMARY STRIP
+                    ui.output_ui("dynamic_explorer_kpis"),
+
+                    # 3. FULL-WIDTH CONTRIBUTION TRENDS CARD + COLLAPSIBLE SIDE-BY-SIDE CHOROPLETH DRAWER
                     ui.card(
                         ui.card_header(
                             ui.div(
-                                ui.tags.span("🌐 Interactive Geopolitical Map & Country Selector", style="font-weight: 600;"),
-                                ui.tags.span(
-                                    "Bubble size & color intensity reflect average CS contribution over the selected period",
-                                    style="font-size: 0.85em; color: #666; float: right;"
-                                )
+                                ui.div(
+                                    ui.tags.span("📈 Individual Country Contribution Trends", style="font-weight: 600;"),
+                                    ui.tags.small(
+                                        "Drag on chart to zoom into any period; double-click to reset.",
+                                        class_="text-muted ms-2"
+                                    )
+                                ),
+                                ui.input_action_button(
+                                    "toggle_choropleth_drawer",
+                                    "🌎 Toggle Side-by-Side Global Choropleth",
+                                    class_="btn-sm btn-outline-primary"
+                                ),
+                                class_="d-flex align-items-center justify-content-between w-100"
                             )
                         ),
-                        ui.row(
-                            ui.column(
-                                8,
-                                ui.output_ui("map_output")
+                        ui.layout_sidebar(
+                            ui.sidebar(
+                                ui.div(
+                                    ui.div(
+                                        ui.tags.strong("🌎 Global Choropleth Snapshot"),
+                                        ui.tags.small(
+                                            "US-Blue (early dominance) to China-Red (modern surge)",
+                                            class_="d-block text-muted mb-2"
+                                        )
+                                    ),
+                                    ui.input_radio_buttons(
+                                        "snapshot_mode",
+                                        "🗺️ Choropleth Mode:",
+                                        choices={
+                                            "static": "🗺️ Period Average (Static)",
+                                            "animated": "🎬 Yearly Evolution (1996–2022)"
+                                        },
+                                        selected="animated",
+                                        inline=True
+                                    ),
+                                    class_="snapshot-controls mb-2 pb-2 border-bottom"
+                                ),
+                                ui.output_ui("contribution_map"),
+                                id="choropleth_right_sidebar",
+                                position="right",
+                                open="closed",
+                                width="48%",
+                                bg="#f8f9fa",
+                                padding="12px"
                             ),
-                            ui.column(
-                                4,
+                            ui.output_ui("main_plot"),
+                            fillable=True,
+                            border=False
+                        ),
+                        full_screen=True,
+                        fill=True,
+                        class_="dashboard-plot-card mb-3 shadow-sm"
+                    ),
+
+                    # 4. 100% FULL-WIDTH INTERACTIVE GEOPOLITICAL MAP (Controls unified in Card Header!)
+                    ui.card(
+                        ui.card_header(
+                            ui.div(
+                                ui.div(
+                                    ui.tags.span("🌐 Interactive Geopolitical Map & Country Selector", style="font-weight: 600;"),
+                                    ui.tags.small(
+                                        "Click any country on the map to add/remove it (zoom & pan position are preserved).",
+                                        class_="text-muted ms-2"
+                                    )
+                                ),
                                 ui.div(
                                     ui.input_radio_buttons(
                                         "map_visual_style",
-                                        "🎨 Map Visual Style:",
+                                        None,
                                         choices={
-                                            "bubbles": "🟣 Proportional Bubbles + Color Intensity (Superzip Style)",
-                                            "flags": "🏳️ Circular National Flag Badges",
-                                            "polygons": "🗺️ Shaded Country Boundaries (GeoJSON)",
-                                            "cartogram": "🧩 Deformed Cartogram Boundaries (Interactive)"
+                                            "bubbles": "🟣 Proportional Bubbles (Superzip)",
+                                            "flags": "🏳️ Circular Flag Badges",
+                                            "polygons": "🗺️ Shaded Country Boundaries"
                                         },
-                                        selected="cartogram"
+                                        selected="polygons",
+                                        inline=True
                                     ),
-                                    ui.hr(style="margin: 10px 0;"),
-                                    ui.input_selectize(
-                                        "country_picker",
-                                        "🔍 Quick Search & Select Countries:",
-                                        choices=initial_data['country_choices'],
-                                        selected=["CN", "US"
-                                                #   , "IN", "FR", "RU", "GB", "DE", "JP"
-                                                  ],
-                                        multiple=True,
-                                        remove_button=True,
-                                        options={"placeholder": "Type country name or ISO code..."}
-                                    ),
-                                    ui.input_radio_buttons(
-                                        "display_mode_input",
-                                        "📊 Analysis Mode:",
-                                        choices={
-                                            "compare_individuals": "Individual Country Trajectories",
-                                            "find_collaborations": "Find Joint Collaborations Between Selected"
-                                        },
-                                        selected="compare_individuals"
-                                    ),
-                                    ui.input_checkbox(
-                                        "show_flags_on_trends",
-                                        "🏳️ Show Country Flags at End of Trend Lines",
-                                        value=True
-                                    ),
-                                    ui.input_action_button(
-                                        "clear_selection", "🗑️ Clear All Selected Countries",
-                                        class_="btn-outline-danger w-100 mt-2 mb-2"
-                                    ),
-                                    ui.div(ui.output_text("selection_info"), class_="text-muted small text-center"),
-                                    style="background-color: #f8f9fa; padding: 14px; border-radius: 8px; border: 1px solid #e5e7eb;"
-                                )
+                                    style="margin-bottom: -6px;"
+                                ),
+                                class_="d-flex flex-wrap align-items-center justify-content-between w-100"
                             )
                         ),
-                        class_="border rounded mb-3"
+                        ui.output_ui("map_output"),
+                        full_screen=True,
+                        class_="border rounded mb-3 shadow-sm"
                     ),
 
-                                        # Dynamic KPI strip that updates with the user's map/country selection
-                    ui.output_ui("dynamic_explorer_kpis"),
-
-                    # Lower Output Tabs (Trends, Global Choropleth Snapshot, Summary Table)
+                    # 5. DEDICATED IN-DEPTH EXPLORATION: JOINT COLLABORATIONS & SUMMARY STATISTICS
                     ui.card(
-                        ui.card_header("� Summary Statistics"),
-                        ui.output_data_frame("summary_table"),
-                        class_="mt-3"
+                        ui.card_header(
+                            ui.div(
+                                ui.div(
+                                    ui.tags.span("🔬 In-Depth Exploration: Joint Collaborations & Summary Statistics", style="font-weight: 600;"),
+                                    ui.tags.small(
+                                        "Explore bilateral & multilateral partnerships among your selected countries or export the summary table.",
+                                        class_="text-muted ms-2"
+                                    )
+                                ),
+                                ui.download_button(
+                                    "download_summary_csv",
+                                    "📥 Download Summary CSV",
+                                    class_="btn-sm btn-outline-secondary"
+                                ),
+                                class_="d-flex align-items-center justify-content-between w-100"
+                            )
+                        ),
+                        ui.navset_card_pill(
+                            ui.nav_panel(
+                                "🤝 Joint Collaborations Between Selected Countries",
+                                ui.div(
+                                    ui.p(
+                                        "Shows all bilateral, trilateral, 4-country, and 5-country+ research networks that include the countries currently selected above. "
+                                        "Tip: Select 2 or 3 specific countries (e.g., China + US, or Germany + US) to inspect all partnerships linking them.",
+                                        class_="text-muted small mb-2"
+                                    ),
+                                    ui.div(
+                                        ui.input_action_button(
+                                            "preset_cn_us_collab",
+                                            "🥼 Focus: China + US (CN–US)",
+                                            class_="btn-sm btn-outline-primary me-2"
+                                        ),
+                                        ui.input_action_button(
+                                            "preset_eu_us_collab",
+                                            "🇪🇺 Focus: Germany + UK + US",
+                                            class_="btn-sm btn-outline-primary me-2"
+                                        ),
+                                        ui.input_action_button(
+                                            "preset_asia_collab",
+                                            "🌏 Focus: China + Japan + India",
+                                            class_="btn-sm btn-outline-primary"
+                                        ),
+                                        class_="mb-2"
+                                    )
+                                ),
+                                ui.output_ui("collab_plot")
+                            ),
+                            ui.nav_panel(
+                                "📋 Summary Statistics Table",
+                                ui.div(
+                                    ui.input_radio_buttons(
+                                        "summary_table_mode",
+                                        "Table View:",
+                                        choices={
+                                            "compare_individuals": "Individual Selected Countries",
+                                            "find_collaborations": "Joint Collaborations Among Selected"
+                                        },
+                                        selected="compare_individuals",
+                                        inline=True
+                                    ),
+                                    class_="mb-2"
+                                ),
+                                ui.output_data_frame("summary_table")
+                            )
+                        ),
+                        class_="border rounded mb-3 shadow-sm"
                     )
-                    
-                    
-                    ),
+                ),
 
                 # TAB 2: Key Article Figures (with Executive Side-by-Side View + Animated Bubble Explorer)
                 ui.nav_panel(
@@ -359,7 +459,7 @@ def create_app():
 
                 # TAB 3: Top 10 Collaborations & Contributors
                 ui.nav_panel(
-                    "🤝 Top 10 Trends",
+                    "🤝 Top 10 Global Trends",
                     ui.panel_well(
                         ui.h4("Explore Top 10 Collaborations and Countries in the Chemical Space", style="text-align: center;"),
                         ui.row(
@@ -433,9 +533,86 @@ def create_app():
                 Shiny.addCustomMessageHandler('trigger_plotly_resize', function(msg) {
                     setTimeout(function() { window.dispatchEvent(new Event('resize')); }, 260);
                 });
+                Shiny.addCustomMessageHandler('reset_saved_map_view', function(msg) {
+                    window._cs_saved_map_view = null;
+                });
+            """),
+            ui.tags.style("""
+                /* 1. Darken standard links (e.g., Article DOI link at the top & footer) */
+                :root {
+                    --bs-link-color: #0b4f6c;
+                    --bs-link-hover-color: #062c3d;
+                }
+                a {
+                    color: #0b4f6c !important;
+                    text-decoration-thickness: 1.5px;
+                }
+                a:hover {
+                    color: #052636 !important;
+                }
+
+                /* 2. Darken Tab Names (Interactive Explorer, Key Article Figures, Top 10 Trends) */
+                .nav-tabs .nav-link,
+                .nav-pills .nav-link {
+                    color: #334155 !important;       /* Dark slate for inactive tabs */
+                    font-weight: 600 !important;
+                }
+                .nav-tabs .nav-link:hover,
+                .nav-pills .nav-link:hover {
+                    color: #0f172a !important;
+                    background-color: #e2e8f0 !important;
+                }
+                .nav-tabs .nav-link.active {
+                    color: #0f172a !important;       /* Deep charcoal-navy for active tab */
+                    font-weight: 700 !important;
+                    border-bottom: 3px solid #0b4f6c !important;
+                    background-color: #ffffff !important;
+                }
+                .nav-pills .nav-link.active {
+                    color: #ffffff !important;
+                    background-color: #0b4f6c !important;
+                }
+
+                /* 3. Make Quick Discovery Preset & Play Period buttons high-contrast */
+                .btn-outline-secondary {
+                    color: #1e293b !important;
+                    border-color: #64748b !important;
+                    background-color: #ffffff !important;
+                    font-weight: 600 !important;
+                }
+                .btn-outline-secondary:hover {
+                    color: #ffffff !important;
+                    background-color: #334155 !important;
+                    border-color: #334155 !important;
+                }
+                .btn-outline-success {
+                    color: #065f46 !important;
+                    border-color: #059669 !important;
+                    background-color: #ffffff !important;
+                    font-weight: 600 !important;
+                }
+                .btn-outline-success:hover {
+                    color: #ffffff !important;
+                    background-color: #059669 !important;
+                }
+                .btn-outline-danger {
+                    color: #991b1b !important;
+                    border-color: #dc2626 !important;
+                    background-color: #ffffff !important;
+                    font-weight: 600 !important;
+                }
+                .btn-outline-danger:hover {
+                    color: #ffffff !important;
+                    background-color: #dc2626 !important;
+                }
+
+                /* 4. Darken muted helper text and subtitles so they are easy to read */
+                .text-muted, small.text-muted {
+                    color: #475569 !important;
+                }
             """)
         ),
-        title="Chemical Space Explorer",
+        title="Chemical Space Explorer 🧪",
         theme=shinyswatch.theme.flatly,
         footer=ui.div(
             ui.hr(),
@@ -450,29 +627,37 @@ def create_app():
     )
 
     def server(input, output, session):
-        # Default selection of top 5 countries so the app opens with rich plots immediately!
-        selected_countries = reactive.Value(["CN", "US", 
-                                            #  "IN", "FR", "RU", "GB", "DE", "JP"
-                                             ])
+        # Start with the Top 10 overall countries pre-selected!
+        selected_countries = reactive.Value(default_top10)
 
         @reactive.Calc
         def country_list():
             return load_country_list()
 
         @reactive.Calc
-        def filtered_data():
+        def individual_filtered_data():
             selected_tuple = tuple(sorted(selected_countries.get())) if selected_countries.get() else ()
             return cached_get_display_data(
                 selected_isos_tuple=selected_tuple,
                 year_range=tuple(input.years()),
                 chemical_category=input.chemical_category(),
-                display_mode=input.display_mode_input(),
+                display_mode="compare_individuals",
+                region_filter=input.region_filter()
+            )
+
+        @reactive.Calc
+        def collab_filtered_data():
+            selected_tuple = tuple(sorted(selected_countries.get())) if selected_countries.get() else ()
+            return cached_get_display_data(
+                selected_isos_tuple=selected_tuple,
+                year_range=tuple(input.years()),
+                chemical_category=input.chemical_category(),
+                display_mode="find_collaborations",
                 region_filter=input.region_filter()
             )
 
         @reactive.Calc
         def region_all_countries_data():
-            """Data for all countries in the current region/period (used to size & color map bubbles)."""
             all_c = country_list()
             reg = input.region_filter()
             if reg != "All":
@@ -488,7 +673,104 @@ def create_app():
                 region_filter=reg
             )
 
-        # 1. Sync dropdown -> reactive selected_countries
+        def _compute_top_isos_for_period(y_start: int, y_end: int, top_n: int = 10) -> list[str]:
+            """Helper to get Top N ISO codes for the active region and chemical subspace."""
+            df = get_raw_dataframe()
+            reg = input.region_filter()
+            chem = input.chemical_category()
+            sub = df[
+                (df['is_collab'] == False) &
+                (df['chemical'] == chem) &
+                (df['year'] >= y_start) &
+                (df['year'] <= y_end)
+            ]
+            if reg != "All":
+                sub = sub[sub['region'] == reg]
+            if sub.empty:
+                return []
+            return (
+                sub.groupby('iso2c')['percentage']
+                .mean()
+                .sort_values(ascending=False)
+                .head(top_n)
+                .index.dropna()
+                .tolist()
+            )
+
+        # --- Quick Discovery Preset Buttons ---
+        @reactive.Effect
+        @reactive.event(input.preset_top10_current)
+        def _apply_top10_current():
+            y0, y1 = input.years()
+            top_isos = _compute_top_isos_for_period(y0, y1, top_n=10)
+            selected_countries.set(top_isos)
+            ui.update_selectize("country_picker", selected=top_isos)
+
+        @reactive.Effect
+        @reactive.event(input.preset_decade_90s)
+        def _apply_decade_90s():
+            ui.update_slider("years", value=[1996, 2005])
+            top_isos = _compute_top_isos_for_period(1996, 2005, top_n=10)
+            selected_countries.set(top_isos)
+            ui.update_selectize("country_picker", selected=top_isos)
+
+        @reactive.Effect
+        @reactive.event(input.preset_decade_crossover)
+        def _apply_decade_crossover():
+            ui.update_slider("years", value=[2006, 2014])
+            top_isos = _compute_top_isos_for_period(2006, 2014, top_n=10)
+            selected_countries.set(top_isos)
+            ui.update_selectize("country_picker", selected=top_isos)
+
+        @reactive.Effect
+        @reactive.event(input.preset_decade_modern)
+        def _apply_decade_modern():
+            ui.update_slider("years", value=[2015, 2022])
+            top_isos = _compute_top_isos_for_period(2015, 2022, top_n=10)
+            selected_countries.set(top_isos)
+            ui.update_selectize("country_picker", selected=top_isos)
+
+        @reactive.Effect
+        @reactive.event(input.preset_biggest_risers)
+        def _apply_biggest_risers():
+            y0, y1 = input.years()
+            df = get_raw_dataframe()
+            reg = input.region_filter()
+            chem = input.chemical_category()
+            sub = df[(df['is_collab'] == False) & (df['chemical'] == chem)]
+            if reg != "All":
+                sub = sub[sub['region'] == reg]
+            start_df = sub[sub['year'] == y0].groupby('iso2c')['percentage'].mean()
+            end_df = sub[sub['year'] == y1].groupby('iso2c')['percentage'].mean()
+            diff = (end_df - start_df).dropna().sort_values(ascending=False)
+            risers = diff.head(8).index.tolist()
+            if risers:
+                selected_countries.set(risers)
+                ui.update_selectize("country_picker", selected=risers)
+
+        # Collaboration Quick-Focus Buttons
+        @reactive.Effect
+        @reactive.event(input.preset_cn_us_collab)
+        def _focus_cn_us():
+            isos = ["CN", "US"]
+            selected_countries.set(isos)
+            ui.update_selectize("country_picker", selected=isos)
+
+        @reactive.Effect
+        @reactive.event(input.preset_eu_us_collab)
+        def _focus_eu_us():
+            isos = ["DE", "GB", "US"]
+            selected_countries.set(isos)
+            ui.update_selectize("country_picker", selected=isos)
+
+        @reactive.Effect
+        @reactive.event(input.preset_asia_collab)
+        def _focus_asia():
+            isos = ["CN", "JP", "IN"]
+            selected_countries.set(isos)
+            ui.update_selectize("country_picker", selected=isos)
+
+        # Sync dropdown -> reactive selected_countries
         @reactive.Effect
         @reactive.event(input.country_picker, ignore_none=False, ignore_init=True)
         def _sync_picker_to_selected():
@@ -496,21 +778,19 @@ def create_app():
             if picker_isos != selected_countries.get():
                 selected_countries.set(picker_isos)
 
-        # 1. Allow the header button to open/close the right sidebar drawer
+        # Header button to open/close the right sidebar drawer
         @reactive.Effect
         @reactive.event(input.toggle_choropleth_drawer)
         def _toggle_right_drawer():
             is_currently_open = bool(input.choropleth_right_sidebar())
             ui.update_sidebar("choropleth_right_sidebar", show=not is_currently_open)
 
-        # 2. Trigger Plotly responsive resize when the right sidebar opens or closes
         @reactive.Effect
         @reactive.event(input.choropleth_right_sidebar)
         async def _resize_plotly_on_sidebar_toggle():
             await session.send_custom_message("trigger_plotly_resize", {})
-        
-        # 2. Sync Folium map click -> reactive selected_countries AND dropdown
-        
+
+        # Sync Folium map click -> reactive selected_countries AND dropdown
         @reactive.Effect
         @reactive.event(input.map_click_iso)
         def _handle_map_click():
@@ -524,17 +804,19 @@ def create_app():
                 selected_countries.set(current_selection)
                 ui.update_selectize("country_picker", selected=current_selection)
 
-        # 3. Sync Reset button -> clear both
+        # Sync Reset button -> clear both
         @reactive.Effect
         @reactive.event(input.clear_selection)
         def _clear_all_selections():
             selected_countries.set([])
             ui.update_selectize("country_picker", selected=[])
 
-        # 4. Update dropdown choices when Region changes
+        # Update dropdown choices and auto-select Top 10 of that region when Region Filter changes
         @reactive.Effect
         @reactive.event(input.region_filter, ignore_init=True)
-        def _handle_region_change():
+        async def _handle_region_change():
+            # Reset saved Leaflet zoom so the map flies cleanly to the new region
+            await session.send_custom_message("reset_saved_map_view", {})
             all_countries = country_list()
             current_region = input.region_filter()
             region_df = all_countries[all_countries['region'] == current_region] if current_region != "All" else all_countries
@@ -543,58 +825,52 @@ def create_app():
                 for _, row in region_df.iterrows()
             }
             valid_selected = [iso for iso in selected_countries.get() if iso in new_choices]
+            if not valid_selected:
+                y0, y1 = input.years()
+                valid_selected = _compute_top_isos_for_period(y0, y1, top_n=8)
             selected_countries.set(valid_selected)
             ui.update_selectize("country_picker", choices=new_choices, selected=valid_selected)
 
         @output
         @render.ui
         def dynamic_explorer_kpis():
-            """NZ Trade Dashboard style dynamic KPI cards reacting to user selection."""
-            data = filtered_data()
+            data = individual_filtered_data()
             y_start, y_end = input.years()
             chem = input.chemical_category()
-            mode = input.display_mode_input()
 
             if data.empty:
                 return ui.div()
 
-            if mode == "compare_individuals":
-                by_country = data.groupby(['iso2c', 'country'])['total_percentage'].agg(['mean', 'max']).reset_index()
-                by_country = by_country.sort_values('mean', ascending=False)
-                top_row = by_country.iloc[0]
-                leader_flag = iso_to_flag_emoji(top_row['iso2c'])
-                leader_title = f"Top Selected ({y_start}–{y_end}): {top_row['country']}"
-                leader_val = f"{top_row['mean']:.2f}% avg (Peak: {top_row['max']:.1f}%)"
+            by_country = data.groupby(['iso2c', 'country'])['total_percentage'].agg(['mean', 'max']).reset_index()
+            by_country = by_country.sort_values('mean', ascending=False)
+            top_row = by_country.iloc[0]
+            leader_flag = iso_to_flag_emoji(top_row['iso2c'])
+            leader_title = f"Top Selected ({y_start}–{y_end}): {top_row['country']}"
+            leader_val = f"{top_row['mean']:.2f}% avg (Peak: {top_row['max']:.1f}%)"
 
-                latest_yr = int(data['year'].max())
-                latest_sum = data[data['year'] == latest_yr]['total_percentage'].sum()
-                second_title = f"Combined Share in {latest_yr} ({len(by_country)} Selected)"
-                second_val = f"{latest_sum:.2f}%"
-            else:
-                by_collab = data.groupby('plot_group')['total_percentage'].agg(['mean', 'max']).reset_index()
-                by_collab = by_collab.sort_values('mean', ascending=False)
-                top_row = by_collab.iloc[0]
-                leader_flag = "🤝"
-                leader_title = f"Top Collaboration ({y_start}–{y_end})"
-                leader_val = f"{top_row['plot_group']} ({top_row['mean']:.2f}%)"
-                second_title = "Active Collaboration Networks Found"
-                second_val = f"{len(by_collab)} Networks"
+            latest_yr = int(data['year'].max())
+            latest_sum = data[data['year'] == latest_yr]['total_percentage'].sum()
+            second_title = f"Combined Share in {latest_yr} ({len(by_country)} Countries)"
+            second_val = f"{latest_sum:.2f}%"
+
+            collab_df = collab_filtered_data()
+            n_collabs = collab_df['plot_group'].nunique() if not collab_df.empty else 0
 
             return ui.layout_column_wrap(
                 ui.div(
-                    ui.div(f"{leader_flag} {leader_title}", style="font-size: 0.82rem; text-transform: uppercase; opacity: 0.9;"),
-                    ui.div(leader_val, style="font-size: 1.35rem; font-weight: 700;"),
-                    style="background: #0d9488; color: white; padding: 12px 16px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.08);"
+                    ui.div(f"{leader_flag} {leader_title}", style="font-size: 0.80rem; text-transform: uppercase; opacity: 0.9;"),
+                    ui.div(leader_val, style="font-size: 1.30rem; font-weight: 700;"),
+                    style="background: #0d9488; color: white; padding: 10px 16px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.08);"
                 ),
                 ui.div(
-                    ui.div(f"📈 {second_title}", style="font-size: 0.82rem; text-transform: uppercase; opacity: 0.9;"),
-                    ui.div(second_val, style="font-size: 1.35rem; font-weight: 700;"),
-                    style="background: #2563eb; color: white; padding: 12px 16px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.08);"
+                    ui.div(f"📈 {second_title}", style="font-size: 0.80rem; text-transform: uppercase; opacity: 0.9;"),
+                    ui.div(second_val, style="font-size: 1.30rem; font-weight: 700;"),
+                    style="background: #2563eb; color: white; padding: 10px 16px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.08);"
                 ),
                 ui.div(
-                    ui.div("🧪 Active Subspace & Timeframe", style="font-size: 0.82rem; text-transform: uppercase; opacity: 0.9;"),
-                    ui.div(f"{chem} ({y_start}–{y_end})", style="font-size: 1.35rem; font-weight: 700;"),
-                    style="background: #4f46e5; color: white; padding: 12px 16px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.08);"
+                    ui.div(f"🤝 Joint Networks ({chem}, {y_start}–{y_end})", style="font-size: 0.80rem; text-transform: uppercase; opacity: 0.9;"),
+                    ui.div(f"{n_collabs} Shared Collaborations", style="font-size: 1.30rem; font-weight: 700;"),
+                    style="background: #4f46e5; color: white; padding: 10px 16px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.08);"
                 ),
                 width=1/3,
                 style="margin-bottom: 12px;"
@@ -610,7 +886,7 @@ def create_app():
                 all_countries[all_countries['region'] == current_region]
                 if current_region != "All" else all_countries
             )
-            return f"{count} selected out of {available_count} countries in {current_region}"
+            return f"Showing {count} of {available_count} countries in {current_region}"
 
         @output
         @render.ui
@@ -632,25 +908,41 @@ def create_app():
         @output
         @render.ui
         def main_plot():
-            current_mode = input.display_mode_input()
             selected = selected_countries.get()
-
-            if current_mode == "find_collaborations" and len(selected) < 2:
-                return figure_to_html(create_empty_plot(
-                    "🤝 Select at least 2 countries on the map or dropdown to find joint collaborations."
-                ))
-
-            data = filtered_data()
+            data = individual_filtered_data()
             if data.empty:
-                if current_mode == "find_collaborations":
-                    return figure_to_html(create_empty_plot("No collaborations found for the selected countries and filters."))
-                return figure_to_html(create_empty_plot("Select one or more countries from the map or search box to view trends."))
+                return figure_to_html(create_empty_plot(
+                    "Select one or more countries from the search bar, preset buttons, or map to view trends."
+                ))
 
             return figure_to_html(create_trends_plot(
                 data=data,
                 selected_countries=selected,
-                mode=current_mode,
+                mode="compare_individuals",
                 show_flags=bool(input.show_flags_on_trends())
+            ))
+
+        @output
+        @render.ui
+        def collab_plot():
+            selected = selected_countries.get()
+            if len(selected) < 2:
+                return figure_to_html(create_empty_plot(
+                    "🤝 Select at least 2 countries (or click one of the Focus buttons above) to explore joint collaborations."
+                ))
+
+            data = collab_filtered_data()
+            if data.empty:
+                return figure_to_html(create_empty_plot(
+                    f"No joint collaborations found linking all {len(selected)} selected countries ({', '.join(selected)}).\n"
+                    "Tip: Select 2 or 3 countries (e.g., CN + US) to see all bilateral & multilateral networks containing them."
+                ))
+
+            return figure_to_html(create_trends_plot(
+                data=data,
+                selected_countries=selected,
+                mode="find_collaborations",
+                show_flags=False
             ))
 
         @output
@@ -673,39 +965,30 @@ def create_app():
                             main_title=f"Average CS Contribution ({y_start}–{y_end}) — {chem_cat}"
                         )
                     )
-                elif mode == "cartogram_static":
-                    return figure_to_html(
-                        create_cartogram_plot(
-                            choropleth_data,
-                            main_title=f"Area-Deformed Cartogram ({y_start}–{y_end}) — {chem_cat}",
-                            animated=False
-                        )
-                    )
-                elif mode == "cartogram_anim":
-                    return figure_to_html(
-                        create_cartogram_plot(
-                            choropleth_data,
-                            main_title=f"Animated Deforming Cartogram ({y_start}–{y_end}) — {chem_cat}",
-                            animated=True
-                        )
-                    )
-                else:
-                    return figure_to_html(create_contribution_choropleth(choropleth_data))
+                return figure_to_html(create_contribution_choropleth(choropleth_data))
             except Exception as e:
                 return figure_to_html(create_empty_plot(f"Error creating map: {str(e)}"))
 
         @output
         @render.data_frame
         def summary_table():
-            data = filtered_data()
+            t_mode = input.summary_table_mode()
+            data = individual_filtered_data() if t_mode == "compare_individuals" else collab_filtered_data()
             if data.empty:
                 msg = (
-                    "Select at least 2 countries to find collaborations."
-                    if input.display_mode_input() == "find_collaborations" and len(selected_countries.get()) < 2
+                    "Select at least 2 countries (e.g. CN + US) to list joint collaborations."
+                    if t_mode == "find_collaborations"
                     else "No data available for current selections."
                 )
                 return pd.DataFrame({"Message": [msg]})
-            return create_summary_dataframe(data, input.display_mode_input())
+            return create_summary_dataframe(data, t_mode)
+
+        @render.download(filename=lambda: f"CS_Explorer_Summary_{input.chemical_category()}_{input.years()[0]}_{input.years()[1]}.csv")
+        def download_summary_csv():
+            t_mode = input.summary_table_mode()
+            data = individual_filtered_data() if t_mode == "compare_individuals" else collab_filtered_data()
+            df_out = create_summary_dataframe(data, t_mode)
+            yield df_out.to_csv(index=False)
 
         @output
         @render.ui
@@ -852,7 +1135,6 @@ def create_app():
                 filtered[filtered['country'].isin(top_entities.index)],
                 f"Top 10 {'Collaborations' if is_collab else 'Countries'} — {chem_filter}"
             ))
-            
 
     return App(app_ui, server, static_assets=www_dir)
 
@@ -860,4 +1142,4 @@ def create_app():
 app = create_app()
 
 if __name__ == "__main__":
-    app.run(port=8000)
+    app.run(port=8888)
