@@ -505,23 +505,59 @@ def create_app():
             )
         ),
 ui.nav_panel(
-            "🔗 Useful Links & Tutorial",
+            "📓 Interactive Tutorial",
+            ui.div(
+                # Barra superior del Tutorial: Selector de Idioma + Botones de Colab y Descarga
+                ui.panel_well(
+                    ui.div(
+                        ui.div(
+                            ui.h4("🧪 Chemical Space Explorer — Interactive Notebook Walkthrough", class_="mb-1 fw-bold"),
+                            ui.p(
+                                "Modify the parameters inside the live cells below to test how the app loads, filters, and plots data in real time.",
+                                class_="text-muted small mb-0"
+                            )
+                        ),
+                        ui.div(
+                            ui.input_radio_buttons(
+                                "tut_lang",
+                                None,
+                                choices={"es": "🇲🇽 Español", "en": "🇬🇧 English"},
+                                selected="es",
+                                inline=True
+                            ),
+                            ui.tags.a(
+                                "🚀 Open in Google Colab",
+                                href="https://colab.research.google.com/github/santi-rios/CS-Explorer-App/blob/main/www/Tutorial_Marisol_CS_Explorer.ipynb",
+                                target="_blank",
+                                class_="btn btn-primary btn-sm ms-2 me-1 text-white fw-bold"
+                            ),
+                            ui.tags.a(
+                                "📥 Download .ipynb",
+                                href="Tutorial_Marisol_CS_Explorer.ipynb",
+                                download="Tutorial_Marisol_CS_Explorer.ipynb",
+                                class_="btn btn-outline-secondary btn-sm"
+                            ),
+                            class_="d-flex flex-wrap align-items-center"
+                        ),
+                        class_="d-flex flex-wrap justify-content-between align-items-center"
+                    ),
+                    class_="bg-light border rounded p-3 mb-3 shadow-sm"
+                ),
+
+                # Contenido dinámico de los 7 módulos (cambia entre Español e Inglés y ejecuta celdas en vivo)
+                ui.output_ui("interactive_notebook_body"),
+                style="max-width: 1200px; margin: 0 auto;"
+            )
+        ),
+
+        ui.nav_panel(
+            "🔗 Useful Links",
             ui.layout_column_wrap(
                 ui.card(
-                    ui.card_header("📓 Interactive App Tutorial (Jupyter & Google Colab)"),
+                    ui.card_header("📓 Interactive App Tutorial"),
                     ui.p(
-                        "Explore how the Chemical Space Explorer is built, customize plots in Python, "
-                        "and learn how to manage the server step by step with our interactive 7-module notebook:"
-                    ),
-                    ui.tags.ol(
-                        ui.tags.li(ui.tags.b("General Architecture:"), " Project structure, Parquet storage, and Docker + Cloudflare stack."),
-                        ui.tags.li(ui.tags.b("Environment Setup:"), " Cloning the repository from GitHub and installing dependencies."),
-                        ui.tags.li(ui.tags.b("Data Management:"), " Fast in-memory caching and inspecting the 189-country dataset."),
-                        ui.tags.li(ui.tags.b("Filtering Pipeline:"), " Querying individual country trajectories vs. multilateral collaborations."),
-                        ui.tags.li(ui.tags.b("Interactive Plots & Maps:"), " Generating Plotly trend lines and Folium geopolitical maps."),
-                        ui.tags.li(ui.tags.b("Shiny Reactivity:"), " Connecting UI buttons, sliders, and map clicks to live charts."),
-                        ui.tags.li(ui.tags.b("Server Administration:"), " Updating and monitoring the production app via SSH and Docker."),
-                        class_="small text-muted mb-3"
+                        "Use the '📓 Interactive Tutorial' tab in the top navigation bar to run live Python cells inside the browser, "
+                        "or launch the standalone notebook in Google Colab:"
                     ),
                     ui.div(
                         ui.tags.a(
@@ -536,14 +572,11 @@ ui.nav_panel(
                             download="Tutorial_Marisol_CS_Explorer.ipynb",
                             class_="btn btn-outline-secondary btn-sm mb-2"
                         ),
-                        class_="d-flex flex-wrap align-items-center mt-auto pt-2 border-top"
+                        class_="d-flex flex-wrap align-items-center mt-2"
                     )
                 ),
                 ui.card(
                     ui.card_header("🔗 Project, Data & Author Resources"),
-                    ui.p(
-                        "Official publication, open-source repositories, and author links for the Chemical Space project:"
-                    ),
                     ui.tags.ul(
                         ui.tags.li(
                             ui.tags.b("Published Article: "),
@@ -745,6 +778,54 @@ ui.nav_panel(
                 .text-muted, small.text-muted {
                     color: #475569 !important;
                 }
+                
+                /* 6. Estilos de Celdas Interactivas tipo Jupyter Notebook */
+                .jp-cell {
+                    border: 1px solid #cbd5e1;
+                    border-radius: 8px;
+                    background: #ffffff;
+                    margin-bottom: 20px;
+                    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+                    overflow: hidden;
+                }
+                .jp-cell-header {
+                    background: #f1f5f9;
+                    padding: 8px 14px;
+                    border-bottom: 1px solid #e2e8f0;
+                    font-weight: 700;
+                    color: #0f172a;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                }
+                .jp-input-area {
+                    display: flex;
+                    background: #f8fafc;
+                    color: #f8fafc;
+                    padding: 12px;
+                    font-family: 'Fira Code', 'Consolas', monospace;
+                    font-size: 0.85rem;
+                }
+                .jp-prompt-in {
+                    color: #0f172a;
+                    font-weight: 700;
+                    min-width: 65px;
+                    user-select: none;
+                }
+                .jp-prompt-out {
+                    color: #0f172a;
+                    font-weight: 700;
+                    min-width: 65px;
+                    user-select: none;
+                }
+                .jp-output-area {
+                    display: flex;
+                    padding: 14px;
+                    background: #ffffff;
+                    border-top: 1px dashed #cbd5e1;
+                    overflow-x: auto;
+                }
+                
             """)
         ),
         title="Chemical Space Explorer 🧪",
@@ -1268,6 +1349,239 @@ ui.nav_panel(
                 filtered[filtered['country'].isin(top_entities.index)],
                 f"Top 10 {'Collaborations' if is_collab else 'Countries'} — {chem_filter}"
             ))
+        # --- CELDAS EN VIVO DEL TUTORIAL INTERACTIVO (MÓDULOS 1 A 7) ---
+        @output
+        @render.ui
+        def interactive_notebook_body():
+            es = (input.tut_lang() == "es")
+            return ui.div(
+                # MÓDULO 1 & 2
+                ui.div(
+                    ui.div(
+                        "🏗️ Módulo 1 y 2: Arquitectura General y Preparación del Entorno (Git)"
+                        if es else "🏗️ Modules 1 & 2: General Architecture & Environment Setup (Git)",
+                        class_="jp-cell-header"
+                    ),
+                    ui.div(
+                        ui.p(
+                            "La aplicación se divide en 4 capas: (1) Base de datos columnar Apache Parquet (data/data.parquet) con 189 países y colaboraciones, "
+                            "(2) Motor de filtrado y graficación en utils/functions.py, (3) Interfaz reactiva Shiny en app.py, y (4) Contenedores Docker + Cloudflare Tunnel."
+                            if es else
+                            "The app is structured into 4 layers: (1) Apache Parquet database (data/data.parquet) covering 189 countries and collaborations, "
+                            "(2) Filtering and plotting engine in utils/functions.py, (3) Reactive Shiny UI in app.py, and (4) Docker + Cloudflare Tunnel stack.",
+                            class_="p-3 mb-0"
+                        ),
+                        ui.div(
+                            ui.div("In [1]:", class_="jp-prompt-in"),
+                            ui.pre(
+                                "# Clonar el repositorio e instalar dependencias / Clone repo & install dependencies\n"
+                                "git clone https://github.com/santi-rios/CS-Explorer-App.git\n"
+                                "cd CS-Explorer-App\n"
+                                "pip install -r requirements.txt\n"
+                                "shiny run app.py --port 8888",
+                                class_="mb-0 text-info"
+                            ),
+                            class_="jp-input-area"
+                        )
+                    ),
+                    class_="jp-cell"
+                ),
+
+                # MÓDULO 3: CELDA EN VIVO PARA EXPLORAR DATA.PARQUET
+                ui.div(
+                    ui.div(
+                        "🗄️ Módulo 3: Cómo se Manejan los Datos (Prueba la celda en vivo)"
+                        if es else "🗄️ Module 3: Data Management & Caching (Try live cell)",
+                        class_="jp-cell-header"
+                    ),
+                    ui.div(
+                        ui.row(
+                            ui.column(
+                                6,
+                                ui.input_radio_buttons(
+                                    "tut_m3_subset",
+                                    "Selecciona qué subconjunto inspeccionar en data.parquet:"
+                                    if es else "Select subset of data.parquet to inspect:",
+                                    choices={
+                                        "solo": "Países individuales (is_collab == False)" if es else "Individual Countries (is_collab == False)",
+                                        "collab": "Colaboraciones internacionales (is_collab == True)" if es else "Collaborations (is_collab == True)"
+                                    },
+                                    selected="solo",
+                                    inline=True
+                                )
+                            ),
+                            ui.column(
+                                6,
+                                ui.input_slider(
+                                    "tut_m3_rows",
+                                    "Número de filas a mostrar (.head(n)):" if es else "Number of rows (.head(n)):",
+                                    min=3, max=15, value=5, step=1
+                                )
+                            ),
+                            class_="p-3 bg-light m-0 border-bottom"
+                        ),
+                        ui.output_ui("tut_m3_code_and_output")
+                    ),
+                    class_="jp-cell"
+                ),
+
+                # MÓDULO 4 y 5: CELDA EN VIVO DE FILTRADO Y GRÁFICAS INTERACTIVAS
+                ui.div(
+                    ui.div(
+                        "📈 Módulos 4 y 5: Filtrado (get_display_data) y Gráficas Interactivas (create_trends_plot)"
+                        if es else "📈 Modules 4 & 5: Filtering Pipeline & Interactive Plotly Charts",
+                        class_="jp-cell-header"
+                    ),
+                    ui.div(
+                        ui.row(
+                            ui.column(
+                                4,
+                                ui.input_selectize(
+                                    "tut_m4_isos",
+                                    "1. Países (selected_isos):" if es else "1. Countries (selected_isos):",
+                                    choices=initial_data['country_choices'],
+                                    selected=["CN", "US", "DE", "JP"],
+                                    multiple=True
+                                )
+                            ),
+                            ui.column(
+                                4,
+                                ui.input_select(
+                                    "tut_m4_chem",
+                                    "2. Subespacio (chemical_category):" if es else "2. Subspace (chemical_category):",
+                                    choices=initial_data['chemical_categories'],
+                                    selected="All"
+                                )
+                            ),
+                            ui.column(
+                                4,
+                                ui.input_radio_buttons(
+                                    "tut_m4_mode",
+                                    "3. Modo (display_mode):" if es else "3. Mode (display_mode):",
+                                    choices={
+                                        "compare_individuals": "compare_individuals",
+                                        "find_collaborations": "find_collaborations"
+                                    },
+                                    selected="compare_individuals"
+                                )
+                            ),
+                            class_="p-3 bg-light m-0 border-bottom"
+                        ),
+                        ui.output_ui("tut_m4_m5_code_and_output")
+                    ),
+                    class_="jp-cell"
+                ),
+
+                # MÓDULO 6 & 7: REACTIVIDAD Y ADMINISTRACIÓN DEL SERVIDOR
+                ui.div(
+                    ui.div(
+                        "⚡ Módulos 6 y 7: Reactividad en Shiny y Administración del Servidor"
+                        if es else "⚡ Modules 6 & 7: Shiny Reactivity & Server Administration",
+                        class_="jp-cell-header"
+                    ),
+                    ui.div(
+                        ui.p(
+                            "En Shiny, cada control visual (input) dispara automáticamente los bloques @reactive.Calc y redibuja las salidas @output @render.ui. "
+                            "Para actualizar la aplicación en producción tras hacer git push, ejecuta en el servidor:"
+                            if es else
+                            "In Shiny, every UI input automatically triggers @reactive.Calc functions and re-renders @output @render.ui blocks. "
+                            "To update the production server after git push, run on the server:",
+                            class_="p-3 mb-0"
+                        ),
+                        ui.div(
+                            ui.div("In [4]:", class_="jp-prompt-in"),
+                            ui.pre(
+                                "# Atajos de administración en el servidor Linux (definidos en ~/.bashrc):\n"
+                                "app-update      # Hace git pull y recrea el contenedor shiny-chemical en segundos\n"
+                                "app-rebuild     # Reconstruye la imagen Docker desde cero si cambió requirements.txt\n"
+                                "tunnel-restart  # Reinicia el conector de Cloudflare Tunnel",
+                                class_="mb-0 text-warning"
+                            ),
+                            class_="jp-input-area"
+                        )
+                    ),
+                    class_="jp-cell"
+                )
+            )
+
+        @output
+        @render.ui
+        def tut_m3_code_and_output():
+            df = get_raw_dataframe()
+            is_collab_val = (input.tut_m3_subset() == "collab")
+            n_rows = int(input.tut_m3_rows())
+            sub_df = df[df['is_collab'] == is_collab_val][
+                ['year', 'country', 'iso2c', 'region', 'chemical', 'percentage']
+            ].head(n_rows)
+
+            code_str = (
+                "from utils.functions import get_raw_dataframe\n"
+                "df = get_raw_dataframe('./data/data.parquet')\n"
+                f"subset = df[df['is_collab'] == {is_collab_val}]\n"
+                f"subset[['year', 'country', 'iso2c', 'region', 'chemical', 'percentage']].head({n_rows})"
+            )
+            return ui.div(
+                ui.div(
+                    ui.div("In [2]:", class_="jp-prompt-in"),
+                    ui.pre(code_str, class_="mb-0"),
+                    class_="jp-input-area"
+                ),
+                ui.div(
+                    ui.div("Out[2]:", class_="jp-prompt-out"),
+                    ui.div(
+                        ui.HTML(sub_df.to_html(index=False, classes="table table-sm table-striped table-bordered mb-0")),
+                        class_="w-100"
+                    ),
+                    class_="jp-output-area"
+                )
+            )
+
+        @output
+        @render.ui
+        def tut_m4_m5_code_and_output():
+            isos = list(input.tut_m4_isos() or ["CN", "US"])
+            chem = input.tut_m4_chem()
+            mode = input.tut_m4_mode()
+
+            df_filtered = cached_get_display_data(
+                selected_isos_tuple=tuple(sorted(isos)),
+                year_range=(1996, 2022),
+                chemical_category=chem,
+                display_mode=mode,
+                region_filter="All"
+            )
+            fig = create_trends_plot(
+                data=df_filtered,
+                selected_countries=isos,
+                mode=mode,
+                show_flags=(mode == "compare_individuals")
+            )
+            fig.update_layout(height=420)
+
+            code_str = (
+                "from utils.functions import get_display_data, create_trends_plot\n\n"
+                f"filtered = get_display_data(\n"
+                f"    df=df,\n"
+                f"    selected_isos={isos},\n"
+                f"    year_range=(1996, 2022),\n"
+                f"    chemical_category='{chem}',\n"
+                f"    display_mode='{mode}'\n"
+                f")\n"
+                f"fig = create_trends_plot(filtered, selected_countries={isos}, mode='{mode}')\n"
+                "fig.show()"
+            )
+            return ui.div(
+                ui.div(
+                    ui.div("In [3]:", class_="jp-prompt-in"),
+                    ui.pre(code_str, class_="mb-0"),
+                    class_="jp-input-area"
+                ),
+                ui.div(
+                    ui.div("Out[3]:", class_="jp-prompt-out"),
+                    ui.div(figure_to_html(fig), class_="w-100"),
+                    class_="jp-output-area"
+                )
+            )
 
     return App(app_ui, server, static_assets=www_dir)
 

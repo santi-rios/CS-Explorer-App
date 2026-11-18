@@ -19,6 +19,26 @@ services:
     networks:
       - shiny-net
 
+# Panel de monitoreo de disponibilidad y alertas (Telegram / Email)
+  # uptime-kuma:
+  #   image: louislam/uptime-kuma:1
+  #   container_name: uptime-kuma
+  #   restart: unless-stopped
+  #   volumes:
+  #     - ./uptime-kuma-data:/app/data
+  #   ports:
+  #     - "127.0.0.1:3001:3001"
+
+  # # Visor web de logs de Docker en tiempo real (para no requerir SSH)
+  # dozzle:
+  #   image: amir20/dozzle:latest
+  #   container_name: dozzle-logs
+  #   restart: unless-stopped
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock:ro
+  #   ports:
+  #     - "127.0.0.1:9999:8080"
+
 networks:
   shiny-net:
     driver: bridge  
