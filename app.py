@@ -504,27 +504,80 @@ def create_app():
                 style="width: 100%; height: 82vh; border: none;"
             )
         ),
-        ui.nav_panel(
-            "🔗 Useful Links & Methods",
+ui.nav_panel(
+            "🔗 Useful Links & Tutorial",
             ui.layout_column_wrap(
                 ui.card(
-                    ui.card_header("📐 Fractional Authorship Formula & Subspace Definitions"),
+                    ui.card_header("📓 Interactive App Tutorial (Jupyter & Google Colab)"),
                     ui.p(
-                        "Each country's annual contribution to the expansion of the Chemical Space (CS) is weighted by the fractional affiliation of authors on papers reporting a substance for the first time:"
+                        "Explore how the Chemical Space Explorer is built, customize plots in Python, "
+                        "and learn how to manage the server step by step with our interactive 7-module notebook:"
                     ),
-                    ui.pre("C_{i,t} = (1 / n_t) * Σ_s (n_{i,s,t} / n_{a,s,t})"),
-                    ui.tags.ul(
-                        ui.tags.li(ui.tags.b("Organic CS:"), " Compounds containing Carbon (C). Dominated by CHNO compositions."),
-                        ui.tags.li(ui.tags.b("Organometallic CS:"), " Compounds containing Carbon and at least one metal atom (Fe, Ru, Cu, Pd, Ni, Pt, etc.)."),
-                        ui.tags.li(ui.tags.b("Rare-Earth (REE) CS:"), " Compounds containing Y, Sc, or lanthanides (La–Lu).")
+                    ui.tags.ol(
+                        ui.tags.li(ui.tags.b("General Architecture:"), " Project structure, Parquet storage, and Docker + Cloudflare stack."),
+                        ui.tags.li(ui.tags.b("Environment Setup:"), " Cloning the repository from GitHub and installing dependencies."),
+                        ui.tags.li(ui.tags.b("Data Management:"), " Fast in-memory caching and inspecting the 189-country dataset."),
+                        ui.tags.li(ui.tags.b("Filtering Pipeline:"), " Querying individual country trajectories vs. multilateral collaborations."),
+                        ui.tags.li(ui.tags.b("Interactive Plots & Maps:"), " Generating Plotly trend lines and Folium geopolitical maps."),
+                        ui.tags.li(ui.tags.b("Shiny Reactivity:"), " Connecting UI buttons, sliders, and map clicks to live charts."),
+                        ui.tags.li(ui.tags.b("Server Administration:"), " Updating and monitoring the production app via SSH and Docker."),
+                        class_="small text-muted mb-3"
+                    ),
+                    ui.div(
+                        ui.tags.a(
+                            "🚀 Open Interactive Tutorial in Google Colab",
+                            href="https://colab.research.google.com/github/santi-rios/CS-Explorer-App/blob/main/www/Tutorial_Marisol_CS_Explorer.ipynb",
+                            target="_blank",
+                            class_="btn btn-primary btn-sm me-2 mb-2 text-white fw-bold"
+                        ),
+                        ui.tags.a(
+                            "📥 Download Jupyter Notebook (.ipynb)",
+                            href="Tutorial_Marisol_CS_Explorer.ipynb",
+                            download="Tutorial_Marisol_CS_Explorer.ipynb",
+                            class_="btn btn-outline-secondary btn-sm mb-2"
+                        ),
+                        class_="d-flex flex-wrap align-items-center mt-auto pt-2 border-top"
                     )
                 ),
                 ui.card(
-                    ui.card_header("🔗 Project & Author Resources"),
+                    ui.card_header("🔗 Project, Data & Author Resources"),
+                    ui.p(
+                        "Official publication, open-source repositories, and author links for the Chemical Space project:"
+                    ),
                     ui.tags.ul(
-                        ui.tags.li(ui.tags.a("Published Article in Quantitative Science Studies (MIT Press)", href="https://doi.org/10.1162/QSS.a.471", target="_blank")),
-                        ui.tags.li(ui.tags.a("Interactive App GitHub Repository", href="https://github.com/santi-rios/CS-Explorer-App", target="_blank")),
-                        ui.tags.li(ui.tags.a("Site Built by Santiago G-Rios", href="https://santi-rios.github.io/", target="_blank"))
+                        ui.tags.li(
+                            ui.tags.b("Published Article: "),
+                            ui.tags.a(
+                                "Bermúdez-Montaña et al. (2025) — Quantitative Science Studies (MIT Press)",
+                                href="https://doi.org/10.1162/QSS.a.471",
+                                target="_blank"
+                            )
+                        ),
+                        ui.tags.li(
+                            ui.tags.b("Raw Data & Article Scripts: "),
+                            ui.tags.a(
+                                "China's Great Leap Forward in the Chemical Space (GitHub)",
+                                href="https://github.com/mbermudezmoTec/China-s-great-leap-forward-in-the-chemical-space",
+                                target="_blank"
+                            )
+                        ),
+                        ui.tags.li(
+                            ui.tags.b("Web Application Repository: "),
+                            ui.tags.a(
+                                "Interactive CS-Explorer-App Source Code (GitHub)",
+                                href="https://github.com/santi-rios/CS-Explorer-App",
+                                target="_blank"
+                            )
+                        ),
+                        ui.tags.li(
+                            ui.tags.b("Developer Portfolio: "),
+                            ui.tags.a(
+                                "Site Built by Santiago G-Rios",
+                                href="https://santi-rios.github.io/",
+                                target="_blank"
+                            )
+                        ),
+                        class_="mb-0"
                     )
                 ),
                 width=1/2
@@ -1222,4 +1275,4 @@ def create_app():
 app = create_app()
 
 if __name__ == "__main__":
-    app.run(port=8000)
+    app.run(port=8800)
